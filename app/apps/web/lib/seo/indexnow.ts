@@ -81,7 +81,8 @@ export async function submitToIndexNow(
         body: JSON.stringify({
           host,
           key,
-          keyLocation: keyLocation ?? `${siteConfig.url}/api/indexnow-key`,
+          // keyLocation is optional - if not provided, search engines look for /{key}.txt
+          ...(keyLocation && { keyLocation }),
           urlList: urls,
         }),
       });

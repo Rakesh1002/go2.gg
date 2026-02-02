@@ -79,6 +79,18 @@ const nextConfig: NextConfig = {
     ];
   },
 
+  // Rewrites for SEO/Indexing
+  async rewrites() {
+    return [
+      // IndexNow key verification - serve key at /{key}.txt
+      // The key value is read from INDEXNOW_API_KEY env var
+      {
+        source: "/:key([a-f0-9]{32}).txt",
+        destination: "/api/indexnow-key",
+      },
+    ];
+  },
+
   // Environment variables to expose to the client
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787",
