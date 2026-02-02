@@ -1,0 +1,211 @@
+---
+title: Webhooks API
+description: Receive real-time notifications when events occur in your Go2 account.
+order: 4
+section: API
+---
+
+Webhooks allow you to receive real-time HTTP POST notifications when events occur in your Go2 account, such as link clicks, creations, and updates.
+
+## Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/webhooks` | List all webhooks |
+| `POST` | `/webhooks` | Create a new webhook |
+| `GET` | `/webhooks/:id` | Get webhook details |
+| `PATCH` | `/webhooks/:id` | Update a webhook |
+| `DELETE` | `/webhooks/:id` | Delete a webhook |
+| `POST` | `/webhooks/:id/test` | Send a test event |
+| `GET` | `/webhooks/:id/deliveries` | Get delivery history |
+| `POST` | `/webhooks/:id/rotate-secret` | Rotate signing secret |
+
+## Create Webhook
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/webhooks \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Click Tracker",
+    "url": "https://your-server.com/webhooks/go2",
+    "events": ["click", "link.created"]
+  }'
+```
+
+### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | A friendly name for the webhook |
+| `url` | string | Yes | The HTTPS URL to receive events |
+| `events` | string[] | Yes | Array of events to subscribe to |
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "wh_abc123",
+    "name": "Click Tracker",
+    "url": "https://your-server.com/webhooks/go2",
+    "events": ["click", "link.created"],
+    "secret": "whsec_xxxx...",
+    "isActive": true,
+    "createdAt": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+> **Warning:** The signing secret is only shown once when the webhook is created. Store it securely!
+
+## Event Types
+
+| Event | Description |
+|-------|-------------|
+| `click` | A short link was clicked |
+| `link.created` | A new link was created |
+| `link.updated` | A link was updated |
+| `link.deleted` | A link was deleted |
+| `domain.verified` | A custom domain was verified |
+| `qr.scanned` | A QR code was scanned |
+| `*` | Subscribe to all events |
+
+## Webhook Payload
+
+All webhook payloads follow this structure:
+
+```json
+{
+  "event": "click",
+  "timestamp": "2024-01-01T12:00:00Z",
+  "data": {
+    // Event-specific data
+  }
+}
+```
+
+### Click Event
+
+```json
+{
+  "event": "click",
+  "timestamp": "2024-01-01T12:00:00Z",
+  "data": {
+    "linkId": "lnk_abc123",
+    "slug": "my-link",
+    "domain": "go2.gg",
+    "destinationUrl": "https://example.com",
+    "country": "US",
+    "city": "San Francisco",
+    "device": "mobile",
+    "browser": "Chrome",
+    "os": "iOS",
+    "referrer": "https://twitter.com"
+  }
+}
+```
+
+### Link Created Event
+
+```json
+{
+  "event": "link.created",
+  "timestamp": "2024-01-01T12:00:00Z",
+  "data": {
+    "id": "lnk_abc123",
+    "slug": "my-link",
+    "domain": "go2.gg",
+    "destinationUrl": "https://example.com",
+    "shortUrl": "https://go2.gg/my-link",
+    "createdBy": "user_xyz"
+  }
+}
+```
+
+## Signature Verification
+
+Every webhook request includes headers for verification:
+
+```
+X-Webhook-ID: wh_abc123
+X-Webhook-Event: click
+X-Webhook-Signature: sha256=...
+X-Webhook-Timestamp: 2024-01-01T12:00:00Z
+```
+
+### Verifying Signatures
+
+Always verify webhook signatures to ensure requests are from Go2:
+
+```javascript
+const crypto = require('crypto');
+
+function verifyWebhook(payload, signature, secret) {
+  const expectedSignature = 'sha256=' + crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+  
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  );
+}
+
+// In your webhook handler
+app.post('/webhooks/go2', (req, res) => {
+  const signature = req.headers['x-webhook-signature'];
+  const payload = JSON.stringify(req.body);
+  
+  if (!verifyWebhook(payload, signature, process.env.WEBHOOK_SECRET)) {
+    return res.status(401).send('Invalid signature');
+  }
+  
+  // Process the webhook
+  const { event, data } = req.body;
+  
+  switch (event) {
+    case 'click':
+      console.log('Link clicked:', data.linkId);
+      break;
+    case 'link.created':
+      console.log('Link created:', data.shortUrl);
+      break;
+  }
+  
+  res.status(200).send('OK');
+});
+```
+
+## Retry Policy
+
+If your endpoint doesn't respond with a 2xx status code, we'll retry the delivery:
+
+- **1st retry**: 5 seconds after initial failure
+- **2nd retry**: 30 seconds after 1st retry
+- **3rd retry**: 2 minutes after 2nd retry
+- **4th retry**: 10 minutes after 3rd retry
+- **5th retry**: 1 hour after 4th retry
+
+After 10 consecutive failures, the webhook is automatically disabled. You can re-enable it from the dashboard.
+
+## Best Practices
+
+1. **Respond quickly**: Return a 200 status within 10 seconds. Process events asynchronously.
+2. **Handle duplicates**: Use the `X-Webhook-ID` header to deduplicate events.
+3. **Verify signatures**: Always verify the `X-Webhook-Signature` header.
+4. **Use HTTPS**: Webhook URLs must use HTTPS for security.
+5. **Test first**: Use the test endpoint to verify your integration before going live.
+
+## Delivery History
+
+View recent deliveries for debugging:
+
+```bash
+curl https://api.go2.gg/api/v1/webhooks/wh_abc123/deliveries \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+Response includes status codes, response times, and any error messages.

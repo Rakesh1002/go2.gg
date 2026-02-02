@@ -1,0 +1,62 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1769351017576,
+      "tag": "0000_great_wendell_rand",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1769351617839,
+      "tag": "0001_eager_mad_thinker",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1769351700000,
+      "tag": "0002_account_rename",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1769351800000,
+      "tag": "0003_affiliates",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1769404800000,
+      "tag": "0004_links_folders",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1769500800000,
+      "tag": "0005_drip_campaigns",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1769587200000,
+      "tag": "0006_user_preferences",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1769673600000,
+      "tag": "0007_contact_support",
+      "breakpoints": true
+    }
+  ]
+}

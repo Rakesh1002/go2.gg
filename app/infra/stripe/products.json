@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Stripe products and prices configuration",
+  "products": [
+    {
+      "id": "prod_free",
+      "name": "Free",
+      "description": "For individuals getting started",
+      "metadata": {
+        "plan": "free"
+      },
+      "features": ["1 user", "100 MB storage", "Basic features"],
+      "prices": []
+    },
+    {
+      "id": "prod_starter",
+      "name": "Starter",
+      "description": "For small teams",
+      "metadata": {
+        "plan": "starter"
+      },
+      "features": ["5 users", "1 GB storage", "Advanced features", "Email support"],
+      "prices": [
+        {
+          "id": "price_starter_monthly",
+          "unit_amount": 1900,
+          "currency": "usd",
+          "recurring": {
+            "interval": "month"
+          }
+        },
+        {
+          "id": "price_starter_yearly",
+          "unit_amount": 19000,
+          "currency": "usd",
+          "recurring": {
+            "interval": "year"
+          }
+        }
+      ]
+    },
+    {
+      "id": "prod_pro",
+      "name": "Pro",
+      "description": "For growing businesses",
+      "metadata": {
+        "plan": "pro"
+      },
+      "features": ["20 users", "10 GB storage", "All features", "Priority support", "Audit logs"],
+      "prices": [
+        {
+          "id": "price_pro_monthly",
+          "unit_amount": 4900,
+          "currency": "usd",
+          "recurring": {
+            "interval": "month"
+          }
+        },
+        {
+          "id": "price_pro_yearly",
+          "unit_amount": 49000,
+          "currency": "usd",
+          "recurring": {
+            "interval": "year"
+          }
+        }
+      ]
+    },
+    {
+      "id": "prod_enterprise",
+      "name": "Enterprise",
+      "description": "For large organizations",
+      "metadata": {
+        "plan": "enterprise"
+      },
+      "features": [
+        "Unlimited users",
+        "Unlimited storage",
+        "All features",
+        "Dedicated support",
+        "SSO",
+        "Custom integrations"
+      ],
+      "prices": []
+    }
+  ]
+}

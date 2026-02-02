@@ -1,0 +1,248 @@
+---
+title: Make (Integromat) Integration
+description: Automate Go2 workflows with Make's visual automation platform.
+---
+
+Automate Go2 link management with Make's powerful visual automation platform.
+
+## Overview
+
+Make (formerly Integromat) is a visual automation platform that lets you connect Go2 to hundreds of apps and create complex multi-step workflows.
+
+**Key Features**:
+- Visual workflow builder (no coding required)
+- Advanced data transformation
+- Error handling and retries
+- Scheduled scenarios
+- Webhook support
+
+## Getting Started
+
+### 1. Create a Make Account
+
+[Sign up for Make](https://www.make.com/en/register) (free plan available with 1,000 operations/month).
+
+### 2. Get Your Go2 API Key
+
+1. Log in to your Go2 dashboard
+2. Go to **Settings → API Keys**
+3. Create a new API key
+4. Copy the key for Make
+
+### 3. Add Go2 Module to Make
+
+1. Create a new scenario in Make
+2. Click **"Add a module"**
+3. Search for "Go2" or "HTTP" module
+4. Configure the connection
+
+## Using HTTP Module
+
+Since Make doesn't have a native Go2 module yet, use the HTTP module:
+
+### Configuration
+
+**Base URL**: `https://api.go2.gg/api/v1`
+
+**Headers**:
+```
+Authorization: Bearer YOUR_API_KEY
+Content-Type: application/json
+```
+
+## Common Scenarios
+
+### Scenario 1: Auto-Shorten Links from Google Sheets
+
+**Use Case**: Automatically create short links when URLs are added to a spreadsheet.
+
+**Setup**:
+1. **Trigger**: Google Sheets → "Watch Rows"
+2. **Action**: HTTP → "Make a Request"
+   - Method: `POST`
+   - URL: `https://api.go2.gg/api/v1/links`
+   - Headers: `Authorization: Bearer YOUR_API_KEY`
+   - Body:
+     ```json
+     {
+       "destinationUrl": "{{1.URL}}",
+       "slug": "{{1.Slug}}",
+       "title": "{{1.Title}}"
+     }
+     ```
+3. **Action**: Google Sheets → "Update a Row"
+   - Update row with short URL from response
+
+### Scenario 2: Monitor Link Clicks and Alert Slack
+
+**Use Case**: Get notified in Slack when links exceed a click threshold.
+
+**Setup**:
+1. **Trigger**: Schedule → "Schedule"
+   - Run every hour
+2. **Action**: HTTP → "Make a Request"
+   - Method: `GET`
+   - URL: `https://api.go2.gg/api/v1/links`
+   - Query: `?perPage=100`
+3. **Filter**: Filter array
+   - Condition: `clickCount > 1000`
+4. **Action**: HTTP → "Make a Request" (for each filtered link)
+   - Method: `GET`
+   - URL: `https://api.go2.gg/api/v1/links/{{id}}/stats`
+5. **Action**: Slack → "Create a Message"
+   - Format message with link stats
+
+### Scenario 3: Sync Links to Airtable
+
+**Use Case**: Keep a database of all your links in Airtable.
+
+**Setup**:
+1. **Trigger**: Webhook → "Custom webhook"
+   - Set up webhook in Go2 dashboard
+2. **Action**: Airtable → "Create a Record"
+   - Map webhook data to Airtable fields:
+     - `Short URL`: `{{webhook.link.shortUrl}}`
+     - `Destination`: `{{webhook.link.destinationUrl}}`
+     - `Clicks`: `{{webhook.link.clickCount}}`
+     - `Created`: `{{webhook.link.createdAt}}`
+
+### Scenario 4: Bulk Link Creation from CSV
+
+**Use Case**: Import hundreds of links from a CSV file.
+
+**Setup**:
+1. **Trigger**: Google Drive → "Watch Files"
+   - Filter: File name contains "links.csv"
+2. **Action**: Google Drive → "Download a File"
+3. **Action**: CSV → "Parse CSV"
+4. **Iterator**: Process each row
+5. **Action**: HTTP → "Make a Request"
+   - Method: `POST`
+   - URL: `https://api.go2.gg/api/v1/links`
+   - Body: Map CSV columns to API fields
+6. **Action**: Google Sheets → "Add a Row"
+   - Log results
+
+## Advanced Workflows
+
+### Multi-Step with Error Handling
+
+```
+1. Trigger: New email
+2. Extract URLs (Text parser)
+3. Router: Split into multiple paths
+   ├─ Path 1: Create link (HTTP)
+   ├─ Path 2: Check if exists (HTTP GET)
+   └─ Path 3: Error handling
+4. Aggregator: Combine results
+5. Action: Send summary email
+```
+
+### Data Transformation
+
+Use Make's data transformation tools:
+
+- **Text parser**: Extract URLs from email/text
+- **Set variables**: Store reusable values
+- **Aggregator**: Combine multiple API responses
+- **Router**: Conditional logic based on data
+
+## Webhook Integration
+
+### Setting Up Go2 Webhooks in Make
+
+1. **Create Webhook Module**:
+   - Add "Webhooks" → "Custom webhook"
+   - Copy the webhook URL
+
+2. **Configure in Go2**:
+   - Go to Dashboard → Webhooks
+   - Create new webhook
+   - Paste Make webhook URL
+   - Select events: `click`, `link.created`
+
+3. **Process in Make**:
+   - Webhook receives JSON payload
+   - Parse data with JSON parser
+   - Route to different actions based on event type
+
+**Example Webhook Payload Processing**:
+
+```javascript
+// In Make's JSON parser
+{
+  "event": "{{webhook.event}}",
+  "linkId": "{{webhook.link.id}}",
+  "shortUrl": "{{webhook.link.shortUrl}}",
+  "clickCountry": "{{webhook.click.country}}",
+  "clickDevice": "{{webhook.click.device}}"
+}
+```
+
+## Tips & Best Practices
+
+1. **Use Aggregators**: Combine multiple API calls efficiently
+2. **Set Variables**: Store API key and base URL as variables
+3. **Error Handling**: Always add error handling routes
+4. **Rate Limiting**: Add delays for bulk operations
+5. **Testing**: Use Make's "Run once" feature to test scenarios
+6. **Scheduling**: Use schedule module for periodic checks
+
+## Rate Limits
+
+Make scenarios respect Go2 API rate limits:
+
+- **Free Plan**: 60 requests/minute
+- **Pro Plan**: 300 requests/minute
+- **Business Plan**: 1,000 requests/minute
+
+Add delays between operations if needed.
+
+## Troubleshooting
+
+### Connection Errors
+
+- Verify API key is correct
+- Check base URL: `https://api.go2.gg/api/v1`
+- Ensure headers are properly formatted
+
+### Data Mapping Issues
+
+- Use Make's data mapper to preview data
+- Check JSON structure matches API response
+- Verify field names match exactly
+
+### Rate Limiting
+
+- Add delays between operations
+- Use aggregators to batch requests
+- Upgrade Go2 plan for higher limits
+
+## Resources
+
+- [Make Documentation](https://www.make.com/en/help)
+- [Go2 API Documentation](/docs/api/overview)
+- [Make Community](https://community.make.com/)
+
+## Example Templates
+
+### Template 1: Email Link Shortener
+
+**Trigger**: Gmail new email  
+**Action**: Extract URLs → Create Go2 links → Reply with short links
+
+### Template 2: Social Media Link Tracker
+
+**Trigger**: Schedule (hourly)  
+**Action**: Get all links → Filter high performers → Post to Slack
+
+### Template 3: CRM Link Sync
+
+**Trigger**: Go2 webhook (link.created)  
+**Action**: Create record in HubSpot/Salesforce
+
+## Need Help?
+
+- [Make Support](https://www.make.com/en/help)
+- [Go2 API Docs](/docs/api/overview)
+- [Make Community Forum](https://community.make.com/)

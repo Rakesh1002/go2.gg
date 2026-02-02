@@ -1,0 +1,46 @@
+{
+  "name": "@repo/ai",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./providers": {
+      "types": "./dist/providers/index.d.ts",
+      "import": "./dist/providers/index.js"
+    },
+    "./rag": {
+      "types": "./dist/rag/index.d.ts",
+      "import": "./dist/rag/index.js"
+    },
+    "./chat": {
+      "types": "./dist/chat/index.d.ts",
+      "import": "./dist/chat/index.js"
+    },
+    "./agents": {
+      "types": "./dist/agents/index.d.ts",
+      "import": "./dist/agents/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@repo/config": "workspace:*",
+    "ai": "^4.0.0",
+    "@ai-sdk/openai": "^1.0.0",
+    "@ai-sdk/anthropic": "^1.0.0",
+    "@ai-sdk/google": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0"
+  }
+}

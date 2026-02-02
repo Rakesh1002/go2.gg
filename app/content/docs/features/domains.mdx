@@ -1,0 +1,197 @@
+---
+title: Custom Domains
+description: Use your own branded domain for short links.
+order: 2
+section: Features
+---
+
+Custom domains let you use your own branded domain for short links instead of `go2.gg`. This builds trust with your audience and reinforces your brand identity.
+
+## Why Use a Custom Domain?
+
+- **Brand Recognition**: `your.link/sale` is more memorable than `go2.gg/xyz123`
+- **Trust**: Users are more likely to click links from domains they recognize
+- **Professionalism**: Shows you've invested in your link infrastructure
+- **Analytics**: Track performance across your branded links
+
+## Adding a Custom Domain
+
+### Step 1: Add the Domain
+
+1. Go to **Dashboard → Domains**
+2. Click **"Add Domain"**
+3. Enter your domain (e.g., `link.example.com`)
+4. Click **"Add"**
+
+### Step 2: Configure DNS
+
+Go2 will display the required DNS records. Add these to your DNS provider:
+
+#### Verification Record (TXT)
+
+```
+Name: _go2.link.example.com
+Type: TXT
+Value: go2-verify=abc123def456
+```
+
+#### Redirect Record (CNAME)
+
+```
+Name: link.example.com
+Type: CNAME
+Value: cname.go2.gg
+```
+
+### Step 3: Verify Ownership
+
+1. Wait 5-10 minutes for DNS propagation
+2. Click **"Verify Domain"** in your dashboard
+3. Go2 will check the TXT record automatically
+
+Once verified, your domain is ready to use!
+
+## SSL Certificates
+
+Go2 automatically provisions SSL certificates for your custom domains using Cloudflare's edge certificates. No configuration required.
+
+- **Automatic provisioning**: SSL is set up within minutes
+- **Auto-renewal**: Certificates never expire
+- **Full encryption**: All traffic is HTTPS
+
+## Domain Settings
+
+### Default Redirect URL
+
+Set where visitors go when they visit your domain without a path:
+
+```
+https://link.example.com → https://example.com
+```
+
+Configure in **Dashboard → Domains → [Your Domain] → Settings**.
+
+### Not Found URL
+
+Set a custom 404 page for invalid slugs:
+
+```
+https://link.example.com/invalid → https://example.com/404
+```
+
+## Using Custom Domains
+
+Once verified, select your custom domain when creating links:
+
+### Dashboard
+
+Choose your domain from the dropdown when creating a new link.
+
+### API
+
+Specify the `domain` field:
+
+```json
+{
+  "destinationUrl": "https://example.com/landing",
+  "domain": "link.example.com",
+  "slug": "summer-sale"
+}
+```
+
+Result: `https://link.example.com/summer-sale`
+
+## Multiple Domains
+
+You can add multiple custom domains based on your plan:
+
+| Plan | Custom Domains |
+|------|----------------|
+| Free | 1 |
+| Pro | 5 |
+| Business | 20 |
+| Enterprise | Unlimited |
+
+Use different domains for different purposes:
+
+- `link.example.com` - General marketing
+- `get.example.com` - Product downloads
+- `join.example.com` - Event registrations
+
+## DNS Providers
+
+Here's how to configure DNS with popular providers:
+
+### Cloudflare
+
+1. Log in to Cloudflare Dashboard
+2. Select your domain
+3. Go to **DNS → Records**
+4. Add the TXT and CNAME records
+5. Ensure the CNAME is **proxied** (orange cloud)
+
+### GoDaddy
+
+1. Log in to GoDaddy
+2. Go to **My Products → DNS**
+3. Click **Add** for each record
+4. Enter the Name, Type, and Value
+
+### Namecheap
+
+1. Log in to Namecheap
+2. Go to **Domain List → Manage**
+3. Click **Advanced DNS**
+4. Add both records
+
+### Google Domains
+
+1. Log in to Google Domains
+2. Select your domain
+3. Go to **DNS → Custom records**
+4. Add the TXT and CNAME records
+
+## Troubleshooting
+
+### Domain Won't Verify
+
+- **Wait longer**: DNS propagation can take up to 48 hours
+- **Check records**: Ensure the TXT record is exactly as shown
+- **Remove quotes**: Some providers add quotes around TXT values
+
+Use a tool like [DNS Checker](https://dnschecker.org) to verify propagation.
+
+### SSL Certificate Issues
+
+- **Wait**: Certificate provisioning takes up to 15 minutes
+- **Clear cache**: Hard refresh or try incognito mode
+- **Check CNAME**: Ensure the CNAME points to `cname.go2.gg`
+
+### Links Not Redirecting
+
+- **Verify domain**: Ensure the domain shows "Verified" in your dashboard
+- **Check CNAME**: The redirect depends on the CNAME record
+- **SSL**: Make sure you're using HTTPS
+
+## Removing a Domain
+
+1. Go to **Dashboard → Domains**
+2. Click the domain you want to remove
+3. Click **"Delete Domain"**
+4. Confirm the deletion
+
+**Warning**: This will break all links using that domain.
+
+## Best Practices
+
+1. **Use a subdomain**: `link.example.com` is better than `example.com`
+2. **Keep it short**: Shorter domains = shorter links
+3. **Be memorable**: Choose something easy to type
+4. **Set up 404**: Provide a helpful fallback page
+5. **Monitor verification**: Renew verification if DNS changes
+
+## Next Steps
+
+- [Short Links](/docs/features/links) - Create branded short links
+- [Analytics](/docs/features/analytics) - Track domain performance
+- [API Reference](/docs/api/domains) - Manage domains via API

@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Go2 - URL Shortener",
+  "version": "1.0.0",
+  "description": "Quickly shorten URLs with Go2.gg - The fastest URL shortener",
+  "permissions": ["storage", "activeTab", "contextMenus", "clipboardWrite", "notifications"],
+  "host_permissions": ["https://*.go2.gg/*", "https://api.go2.gg/*"],
+  "action": {
+    "default_popup": "popup/index.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.go2.gg/*"],
+      "js": ["content/index.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "options/index.html",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "commands": {
+    "shorten-current-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+S",
+        "mac": "Alt+Shift+S"
+      },
+      "description": "Shorten the current page URL"
+    }
+  }
+}

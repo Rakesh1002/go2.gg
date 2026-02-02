@@ -1,0 +1,33 @@
+{
+  "name": "@repo/payments",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./stripe": {
+      "types": "./dist/stripe/index.d.ts",
+      "import": "./dist/stripe/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo node_modules"
+  },
+  "dependencies": {
+    "stripe": "^17.4.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5"
+  }
+}

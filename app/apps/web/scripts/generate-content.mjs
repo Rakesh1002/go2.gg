@@ -1,0 +1,315 @@
+/**
+ * Content Generation Script
+ *
+ * Pre-generates all MDX content at build time as static imports.
+ * Run: node scripts/generate-content.mjs
+ */
+
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import matter from "gray-matter";
+import { marked } from "marked";
+
+// Helper to generate slug from heading text
+function generateSlug(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .trim();
+}
+
+// Custom renderer to add IDs to headings
+const renderer = {
+  heading({ tokens, depth }) {
+    const text = tokens.map((t) => t.raw || t.text || "").join("");
+    const id = generateSlug(text);
+    return `<h${depth} id="${id}">${this.parser.parseInline(tokens)}</h${depth}>\n`;
+  },
+};
+
+// Configure marked for GFM with custom renderer
+marked.use({ renderer });
+marked.setOptions({
+  gfm: true,
+  breaks: true,
+});
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const contentDirectory = path.join(__dirname, "..", "..", "..", "content");
+const outputDirectory = path.join(__dirname, "..", "lib", "generated");
+
+function calculateReadingTime(content) {
+  const wordsPerMinute = 200;
+  const words = content.trim().split(/\s+/).length;
+  const minutes = Math.ceil(words / wordsPerMinute);
+  return `${minutes} min read`;
+}
+
+function extractHeadings(content) {
+  const headingRegex = /^(#{2,4})\s+(.+)$/gm;
+  const headings = [];
+
+  let match;
+  while ((match = headingRegex.exec(content)) !== null) {
+    const level = match[1].length;
+    const text = match[2].trim();
+    const id = text
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .trim();
+
+    headings.push({ id, text, level });
+  }
+
+  return headings;
+}
+
+function getAllDocPages() {
+  const docsDir = path.join(contentDirectory, "docs");
+
+  if (!fs.existsSync(docsDir)) {
+    console.log("No docs directory found at:", docsDir);
+    return [];
+  }
+
+  function getDocsRecursively(dir, basePath = "") {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const pages = [];
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const subPages = getDocsRecursively(
+          path.join(dir, entry.name),
+          `${basePath}${entry.name}/`
+        );
+        pages.push(...subPages);
+      } else if (entry.name.endsWith(".mdx")) {
+        const filePath = path.join(dir, entry.name);
+        const fileContents = fs.readFileSync(filePath, "utf8");
+        const { data, content } = matter(fileContents);
+        const slug = `${basePath}${entry.name.replace(".mdx", "")}`;
+
+        // Convert markdown to HTML
+        const html = marked.parse(content);
+
+        pages.push({
+          slug,
+          title: data.title ?? "Untitled",
+          description: data.description ?? "",
+          order: data.order ?? 999,
+          section: data.section,
+          content,
+          html,
+        });
+      }
+    }
+
+    return pages;
+  }
+
+  return getDocsRecursively(docsDir).sort((a, b) => a.order - b.order);
+}
+
+function getAllBlogPosts() {
+  const blogDir = path.join(contentDirectory, "blog");
+
+  if (!fs.existsSync(blogDir)) {
+    console.log("No blog directory found at:", blogDir);
+    return [];
+  }
+
+  const files = fs.readdirSync(blogDir).filter((f) => f.endsWith(".mdx"));
+
+  const posts = files.map((filename) => {
+    const filePath = path.join(blogDir, filename);
+    const fileContents = fs.readFileSync(filePath, "utf8");
+    const { data, content } = matter(fileContents);
+
+    // Convert markdown to HTML
+    const html = marked.parse(content);
+
+    return {
+      slug: filename.replace(".mdx", ""),
+      title: data.title ?? "Untitled",
+      description: data.description ?? "",
+      date: data.date ?? new Date().toISOString(),
+      author: data.author ?? "Anonymous",
+      authorImage: data.authorImage,
+      authorBio: data.authorBio,
+      image: data.image,
+      tags: data.tags ?? [],
+      published: data.published !== false,
+      content,
+      html,
+      readingTime: calculateReadingTime(content),
+      headings: extractHeadings(content),
+    };
+  });
+
+  return posts
+    .filter((p) => p.published)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
+function main() {
+  console.log("Content directory:", contentDirectory);
+  console.log("Output directory:", outputDirectory);
+
+  // Ensure output directory exists
+  if (!fs.existsSync(outputDirectory)) {
+    fs.mkdirSync(outputDirectory, { recursive: true });
+  }
+
+  // Generate docs content
+  const docs = getAllDocPages();
+  const docsMap = {};
+  for (const doc of docs) {
+    docsMap[doc.slug] = doc;
+  }
+
+  const docsOutput = `// Auto-generated file - do not edit manually
+// Generated by: node scripts/generate-content.mjs
+
+export interface DocPage {
+  slug: string;
+  title: string;
+  description: string;
+  order: number;
+  section?: string;
+  content: string;
+  html: string;
+}
+
+export const allDocPages: DocPage[] = ${JSON.stringify(docs, null, 2)};
+
+export const docPagesBySlug: Record<string, DocPage> = ${JSON.stringify(docsMap, null, 2)};
+
+export function getDocPage(slug: string): DocPage | null {
+  return docPagesBySlug[slug] ?? null;
+}
+
+export function getAllDocPages(): DocPage[] {
+  return allDocPages;
+}
+`;
+
+  fs.writeFileSync(path.join(outputDirectory, "docs.ts"), docsOutput);
+  console.log(`✅ Generated ${docs.length} doc pages`);
+
+  // Generate blog content
+  const posts = getAllBlogPosts();
+  const postsMap = {};
+  for (const post of posts) {
+    postsMap[post.slug] = post;
+  }
+
+  // Collect all tags
+  const allTags = new Set();
+  for (const post of posts) {
+    for (const tag of post.tags) {
+      allTags.add(tag);
+    }
+  }
+
+  const blogOutput = `// Auto-generated file - do not edit manually
+// Generated by: node scripts/generate-content.mjs
+
+export interface TocItem {
+  id: string;
+  text: string;
+  level: number;
+}
+
+export interface BlogPost {
+  slug: string;
+  title: string;
+  description: string;
+  date: string;
+  author: string;
+  authorImage?: string;
+  authorBio?: string;
+  image?: string;
+  tags: string[];
+  published: boolean;
+  content: string;
+  html: string;
+  readingTime: string;
+  headings: TocItem[];
+}
+
+export const allBlogPosts: BlogPost[] = ${JSON.stringify(posts, null, 2)};
+
+export const blogPostsBySlug: Record<string, BlogPost> = ${JSON.stringify(postsMap, null, 2)};
+
+export const allTags: string[] = ${JSON.stringify(Array.from(allTags).sort(), null, 2)};
+
+export function getBlogPost(slug: string): BlogPost | null {
+  return blogPostsBySlug[slug] ?? null;
+}
+
+export function getAllBlogPosts(): BlogPost[] {
+  return allBlogPosts;
+}
+
+export function getAllTags(): string[] {
+  return allTags;
+}
+
+export function getRelatedPosts(currentSlug: string, limit = 3): BlogPost[] {
+  const currentPost = blogPostsBySlug[currentSlug];
+  if (!currentPost) return [];
+
+  const scoredPosts = allBlogPosts
+    .filter((p) => p.slug !== currentSlug)
+    .map((post) => {
+      const sharedTags = post.tags.filter((tag) => currentPost.tags.includes(tag));
+      return { post, score: sharedTags.length };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (scoredPosts.length === 0) {
+    return allBlogPosts.filter((p) => p.slug !== currentSlug).slice(0, limit);
+  }
+
+  return scoredPosts.slice(0, limit).map((item) => item.post);
+}
+
+/**
+ * Extract headings from MDX content for Table of Contents
+ */
+export function extractHeadings(content: string): TocItem[] {
+  const headingRegex = /^(#{2,4})\\s+(.+)$/gm;
+  const headings: TocItem[] = [];
+
+  const matches = content.matchAll(headingRegex);
+  for (const match of matches) {
+    const level = match[1].length;
+    const text = match[2].trim();
+    const id = text
+      .toLowerCase()
+      .replace(/[^a-z0-9\\s-]/g, "")
+      .replace(/\\s+/g, "-")
+      .replace(/-+/g, "-")
+      .trim();
+
+    headings.push({ id, text, level });
+  }
+
+  return headings;
+}
+`;
+
+  fs.writeFileSync(path.join(outputDirectory, "blog.ts"), blogOutput);
+  console.log(`✅ Generated ${posts.length} blog posts`);
+  console.log(`✅ Generated ${allTags.size} tags`);
+
+  console.log("\\n📦 Content generation complete!");
+}
+
+main();

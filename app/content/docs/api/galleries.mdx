@@ -1,0 +1,188 @@
+---
+title: Galleries API (Link-in-Bio)
+description: Create and manage Link-in-Bio pages with the Galleries API.
+order: 5
+section: API
+---
+
+The Galleries API lets you create and manage Link-in-Bio pages programmatically.
+
+## Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/galleries` | List all galleries |
+| `POST` | `/galleries` | Create a new gallery |
+| `GET` | `/galleries/:id` | Get gallery with items |
+| `PATCH` | `/galleries/:id` | Update gallery |
+| `DELETE` | `/galleries/:id` | Delete gallery |
+| `POST` | `/galleries/:id/publish` | Publish/unpublish |
+| `POST` | `/galleries/:id/items` | Add item |
+| `PATCH` | `/galleries/:id/items/:itemId` | Update item |
+| `DELETE` | `/galleries/:id/items/:itemId` | Delete item |
+| `PATCH` | `/galleries/:id/items/reorder` | Reorder items |
+
+## Create Gallery
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/galleries \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "slug": "myprofile",
+    "title": "John Doe",
+    "bio": "Creator, developer, coffee enthusiast",
+    "theme": "gradient"
+  }'
+```
+
+### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `slug` | string | Yes | URL slug (e.g., "myprofile" for go2.gg/bio/myprofile) |
+| `domain` | string | No | Custom domain (default: go2.gg) |
+| `title` | string | No | Display name |
+| `bio` | string | No | Short biography (max 500 chars) |
+| `avatarUrl` | string | No | Profile picture URL |
+| `theme` | string | No | Theme name: default, minimal, gradient, dark, neon |
+| `socialLinks` | array | No | Array of social profile links |
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "gal_abc123",
+    "slug": "myprofile",
+    "domain": "go2.gg",
+    "title": "John Doe",
+    "bio": "Creator, developer, coffee enthusiast",
+    "theme": "gradient",
+    "isPublished": false,
+    "url": "https://go2.gg/bio/myprofile",
+    "createdAt": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+## Add Gallery Items
+
+Add links, headers, dividers, and embeds to your gallery:
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/galleries/gal_abc123/items \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "link",
+    "title": "My Website",
+    "url": "https://example.com"
+  }'
+```
+
+### Item Types
+
+| Type | Description | Required Fields |
+|------|-------------|-----------------|
+| `link` | Clickable link | `title`, `url` |
+| `header` | Section header | `title` |
+| `divider` | Visual separator | None |
+| `embed` | Video/audio embed | `embedType`, `embedData` |
+| `image` | Image block | `thumbnailUrl` |
+
+### Link Item
+
+```json
+{
+  "type": "link",
+  "title": "My Website",
+  "url": "https://example.com",
+  "iconName": "Globe",
+  "thumbnailUrl": "https://example.com/icon.png"
+}
+```
+
+### Header Item
+
+```json
+{
+  "type": "header",
+  "title": "Social Links"
+}
+```
+
+### Embed Item (YouTube)
+
+```json
+{
+  "type": "embed",
+  "title": "Latest Video",
+  "embedType": "youtube",
+  "embedData": {
+    "videoId": "dQw4w9WgXcQ"
+  }
+}
+```
+
+## Themes
+
+Available themes for your gallery:
+
+| Theme | Description |
+|-------|-------------|
+| `default` | Clean white background with subtle shadows |
+| `minimal` | Simple, text-focused design |
+| `gradient` | Vibrant gradient background |
+| `dark` | Dark mode with light text |
+| `neon` | Black background with neon accents |
+| `custom` | Use custom CSS |
+
+## Custom Styling
+
+For the `custom` theme, you can provide custom CSS:
+
+```bash
+curl -X PATCH https://api.go2.gg/api/v1/galleries/gal_abc123 \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "theme": "custom",
+    "customCss": ".bio-page { background: linear-gradient(45deg, #ff6b6b, #4ecdc4); }"
+  }'
+```
+
+## Publish/Unpublish
+
+Galleries are unpublished by default. Publish when ready:
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/galleries/gal_abc123/publish \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"isPublished": true}'
+```
+
+## Reorder Items
+
+Change the order of items:
+
+```bash
+curl -X PATCH https://api.go2.gg/api/v1/galleries/gal_abc123/items/reorder \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "itemIds": ["item_3", "item_1", "item_2"]
+  }'
+```
+
+## Public Access
+
+Published galleries are accessible without authentication:
+
+```bash
+curl https://api.go2.gg/api/v1/public/galleries/go2.gg/myprofile
+```
+
+This returns the gallery data for rendering, excluding private fields.

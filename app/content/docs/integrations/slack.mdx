@@ -1,0 +1,375 @@
+---
+title: Slack Integration
+description: Get real-time notifications about your links in Slack.
+---
+
+Get instant notifications about link clicks, creations, and analytics directly in your Slack workspace.
+
+## Overview
+
+Connect Go2 to Slack to:
+- Receive notifications when links are clicked
+- Get daily/weekly analytics summaries
+- Create links from Slack messages
+- Track campaign performance in channels
+
+## Method 1: Webhooks (Recommended)
+
+The easiest way to integrate Go2 with Slack is using webhooks.
+
+### Setup
+
+1. **Create Slack Incoming Webhook**:
+   - Go to [Slack Apps](https://api.slack.com/apps)
+   - Create a new app or use existing
+   - Go to "Incoming Webhooks"
+   - Activate incoming webhooks
+   - Add new webhook to workspace
+   - Copy the webhook URL (looks like: `https://hooks.slack.com/services/XXX/YYY/ZZZ`)
+
+2. **Configure Go2 Webhook**:
+   - Go to Go2 Dashboard → Webhooks
+   - Click "Create Webhook"
+   - Name: "Slack Notifications"
+   - URL: Paste your Slack webhook URL
+   - Events: Select `click`, `link.created`, `link.updated`
+   - Click "Create"
+
+3. **Test**:
+   - Create a test link in Go2
+   - You should see a notification in Slack
+
+### Webhook Payload Format
+
+Go2 sends webhooks in this format. You can customize the Slack message format:
+
+```json
+{
+  "event": "click",
+  "link": {
+    "id": "lnk_abc123",
+    "shortUrl": "https://go2.gg/summer-sale",
+    "destinationUrl": "https://example.com/product",
+    "title": "Summer Sale Campaign"
+  },
+  "click": {
+    "country": "US",
+    "device": "mobile",
+    "referrer": "twitter.com",
+    "timestamp": "2024-06-15T14:22:00Z"
+  }
+}
+```
+
+### Custom Slack Message Format
+
+Use Slack's Block Kit to format messages. Here's an example webhook handler:
+
+```javascript
+// Example: Node.js webhook handler
+app.post('/slack-webhook', async (req, res) => {
+  const { event, link, click } = req.body;
+  
+  const slackMessage = {
+    blocks: [
+      {
+        type: "header",
+        text: {
+          type: "plain_text",
+          text: `🔗 Link Clicked: ${link.title || link.shortUrl}`
+        }
+      },
+      {
+        type: "section",
+        fields: [
+          {
+            type: "mrkdwn",
+            text: `*Short URL:*\n${link.shortUrl}`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Destination:*\n${link.destinationUrl}`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Country:*\n${click.country || 'Unknown'}`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Device:*\n${click.device || 'Unknown'}`
+          }
+        ]
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `From: ${click.referrer || 'Direct'} • ${new Date(click.timestamp).toLocaleString()}`
+          }
+        ]
+      }
+    ]
+  };
+  
+  await fetch(SLACK_WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(slackMessage)
+  });
+  
+  res.sendStatus(200);
+});
+```
+
+## Method 2: Slack App (Advanced)
+
+For more advanced features, create a Slack app:
+
+### Features
+
+- **Slash Commands**: `/go2 create https://example.com`
+- **Interactive Buttons**: Create links from message actions
+- **Modals**: Rich link creation forms
+- **Shortcuts**: Quick link creation from sidebar
+
+### Setup Steps
+
+1. **Create Slack App**:
+   - Go to [Slack API](https://api.slack.com/apps)
+   - Click "Create New App"
+   - Choose "From scratch"
+   - Name: "Go2 Link Manager"
+   - Select your workspace
+
+2. **Add Slash Command**:
+   - Go to "Slash Commands"
+   - Create new command: `/go2`
+   - Request URL: Your server endpoint
+   - Description: "Create and manage Go2 short links"
+
+3. **Add Bot Token Scopes**:
+   - `chat:write` - Send messages
+   - `commands` - Handle slash commands
+   - `links:write` - Create links (if needed)
+
+4. **Install App**:
+   - Go to "Install App"
+   - Install to workspace
+   - Copy Bot User OAuth Token
+
+### Example Slash Command Handler
+
+```javascript
+// Handle /go2 create <url>
+app.post('/slack/commands', async (req, res) => {
+  const { text, user_id, response_url } = req.body;
+  
+  if (text.startsWith('create ')) {
+    const url = text.replace('create ', '');
+    
+    // Create link via Go2 API
+    const response = await fetch('https://api.go2.gg/api/v1/links', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${GO2_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ destinationUrl: url })
+    });
+    
+    const { data: link } = await response.json();
+    
+    // Send response to Slack
+    res.json({
+      response_type: 'in_channel',
+      text: `✅ Created: ${link.shortUrl}`,
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `*Link Created*\n<${link.shortUrl}|${link.shortUrl}> → ${link.destinationUrl}`
+          }
+        }
+      ]
+    });
+  }
+});
+```
+
+## Common Use Cases
+
+### 1. Daily Analytics Summary
+
+Send a daily summary of link performance:
+
+```javascript
+// Run daily via cron
+const links = await fetchGo2Links();
+const summary = {
+  totalClicks: links.reduce((sum, link) => sum + link.clickCount, 0),
+  topLinks: links.sort((a, b) => b.clickCount - a.clickCount).slice(0, 5)
+};
+
+await sendSlackMessage({
+  text: `📊 Daily Link Summary\nTotal Clicks: ${summary.totalClicks}\nTop Links:\n${summary.topLinks.map(l => `• ${l.shortUrl}: ${l.clickCount} clicks`).join('\n')}`
+});
+```
+
+### 2. High-Performance Alerts
+
+Notify when a link exceeds a threshold:
+
+```javascript
+// In webhook handler
+if (link.clickCount > 1000) {
+  await sendSlackMessage({
+    text: `🚀 Link Milestone!\n${link.shortUrl} just hit ${link.clickCount} clicks!`,
+    channel: '#marketing'
+  });
+}
+```
+
+### 3. Campaign Tracking
+
+Track campaign performance in dedicated channels:
+
+```javascript
+// Route notifications by campaign tag
+if (link.tags.includes('summer-sale')) {
+  await sendSlackMessage({
+    text: `Summer Sale link clicked: ${link.shortUrl}`,
+    channel: '#summer-campaign'
+  });
+}
+```
+
+## Message Formatting Tips
+
+### Use Block Kit
+
+Slack's Block Kit provides rich formatting:
+
+```json
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "Link Analytics"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Total Clicks:* 1,234\n*Top Country:* US\n*Top Device:* Mobile"
+      }
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "View Dashboard"
+          },
+          "url": "https://go2.gg/dashboard"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Use Emojis
+
+Make messages more engaging:
+- 🔗 Link created
+- 👆 Link clicked
+- 📊 Analytics
+- 🚀 Milestone reached
+- ⚠️ Alert
+
+## Security
+
+### Verify Webhook Signatures
+
+Always verify webhook signatures from Go2:
+
+```javascript
+const crypto = require('crypto');
+
+function verifyWebhookSignature(payload, signature, secret) {
+  const hmac = crypto.createHmac('sha256', secret);
+  hmac.update(JSON.stringify(payload));
+  const expectedSignature = hmac.digest('hex');
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  );
+}
+```
+
+### Store Secrets Securely
+
+- Use environment variables for API keys
+- Never commit secrets to git
+- Use Slack's signing secret for app verification
+
+## Troubleshooting
+
+### Not Receiving Notifications
+
+1. Check webhook URL is correct
+2. Verify webhook is active in Go2 dashboard
+3. Check Slack app permissions
+4. Review webhook delivery logs in Go2
+
+### Formatting Issues
+
+1. Use Slack's Block Kit Builder: https://app.slack.com/block-kit-builder
+2. Test message format before deploying
+3. Check Slack API version compatibility
+
+### Rate Limiting
+
+- Slack has rate limits (Tier 1: 1 req/sec)
+- Batch notifications if needed
+- Use Slack's response_url for delayed responses
+
+## Resources
+
+- [Slack API Documentation](https://api.slack.com/)
+- [Slack Block Kit Builder](https://app.slack.com/block-kit-builder)
+- [Go2 Webhooks Documentation](/docs/api/webhooks)
+- [Go2 API Documentation](/docs/api/overview)
+
+## Example Templates
+
+### Template 1: Simple Click Notifications
+
+```javascript
+// Minimal webhook handler
+app.post('/slack', async (req, res) => {
+  const { link, click } = req.body;
+  await fetch(SLACK_WEBHOOK_URL, {
+    method: 'POST',
+    body: JSON.stringify({
+      text: `🔗 ${link.shortUrl} clicked from ${click.country}`
+    })
+  });
+  res.sendStatus(200);
+});
+```
+
+### Template 2: Rich Analytics Dashboard
+
+Create a Slack message with interactive buttons and formatted analytics data.
+
+### Template 3: Campaign Tracker
+
+Track multiple campaigns with dedicated channels and formatted reports.

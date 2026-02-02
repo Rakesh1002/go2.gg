@@ -1,0 +1,418 @@
+---
+title: Links API
+description: Create, manage, and track short links via the API.
+order: 2
+section: API
+---
+
+The Links API allows you to programmatically create and manage short links.
+
+## Create a Link
+
+Create a new short link.
+
+```
+POST /links
+```
+
+### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `destinationUrl` | string | Yes | The target URL to redirect to |
+| `slug` | string | No | Custom slug (auto-generated if not provided) |
+| `domain` | string | No | Custom domain (uses default if not provided) |
+| `title` | string | No | Link title for organization |
+| `description` | string | No | Link description |
+| `tags` | string[] | No | Tags for filtering |
+| `password` | string | No | Password to protect the link |
+| `expiresAt` | string | No | ISO 8601 expiration date |
+| `clickLimit` | number | No | Maximum number of clicks allowed |
+| `geoTargets` | object | No | Country-specific redirect URLs |
+| `deviceTargets` | object | No | Device-specific redirect URLs |
+| `iosUrl` | string | No | iOS app deep link URL |
+| `androidUrl` | string | No | Android app deep link URL |
+
+### Example Request
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destinationUrl": "https://example.com/my-landing-page",
+    "slug": "summer-sale",
+    "title": "Summer Sale Campaign",
+    "tags": ["marketing", "summer-2024"],
+    "expiresAt": "2024-09-01T00:00:00Z"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "lnk_abc123",
+    "shortUrl": "https://go2.gg/summer-sale",
+    "destinationUrl": "https://example.com/my-landing-page",
+    "slug": "summer-sale",
+    "domain": "go2.gg",
+    "title": "Summer Sale Campaign",
+    "tags": ["marketing", "summer-2024"],
+    "hasPassword": false,
+    "expiresAt": "2024-09-01T00:00:00Z",
+    "clickCount": 0,
+    "createdAt": "2024-06-01T10:30:00Z",
+    "updatedAt": "2024-06-01T10:30:00Z"
+  }
+}
+```
+
+## List Links
+
+Retrieve all links for your account.
+
+```
+GET /links
+```
+
+### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `page` | number | 1 | Page number |
+| `perPage` | number | 20 | Items per page (max 100) |
+| `search` | string | - | Search by slug, URL, or title |
+| `domain` | string | - | Filter by domain |
+| `tag` | string | - | Filter by tag |
+| `archived` | boolean | false | Include archived links |
+| `sort` | string | "created" | Sort by: created, clicks, updated |
+
+### Example Request
+
+```bash
+curl "https://api.go2.gg/api/v1/links?perPage=10&sort=clicks" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "lnk_abc123",
+      "shortUrl": "https://go2.gg/summer-sale",
+      "destinationUrl": "https://example.com/my-landing-page",
+      "clickCount": 1542,
+      "createdAt": "2024-06-01T10:30:00Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "perPage": 10,
+    "total": 47,
+    "hasMore": true
+  }
+}
+```
+
+## Get a Link
+
+Retrieve a single link by ID.
+
+```
+GET /links/:id
+```
+
+### Example Request
+
+```bash
+curl https://api.go2.gg/api/v1/links/lnk_abc123 \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+## Update a Link
+
+Update an existing link.
+
+```
+PATCH /links/:id
+```
+
+### Request Body
+
+All fields from `POST /links` are supported, plus:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `isArchived` | boolean | Archive or restore the link |
+
+### Example Request
+
+```bash
+curl -X PATCH https://api.go2.gg/api/v1/links/lnk_abc123 \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destinationUrl": "https://example.com/updated-page",
+    "tags": ["marketing", "summer-2024", "updated"]
+  }'
+```
+
+## Delete a Link
+
+Archive a link (soft delete). The link will no longer redirect.
+
+```
+DELETE /links/:id
+```
+
+### Example Request
+
+```bash
+curl -X DELETE https://api.go2.gg/api/v1/links/lnk_abc123 \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+Returns `204 No Content` on success.
+
+## Get Link Analytics
+
+Retrieve detailed analytics for a link.
+
+```
+GET /links/:id/stats
+```
+
+### Example Request
+
+```bash
+curl https://api.go2.gg/api/v1/links/lnk_abc123/stats \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalClicks": 1542,
+    "lastClickedAt": "2024-06-15T14:22:00Z",
+    "byCountry": [
+      { "country": "US", "count": 823 },
+      { "country": "GB", "count": 234 },
+      { "country": "DE", "count": 156 }
+    ],
+    "byDevice": [
+      { "device": "desktop", "count": 892 },
+      { "device": "mobile", "count": 587 },
+      { "device": "tablet", "count": 63 }
+    ],
+    "byBrowser": [
+      { "browser": "Chrome", "count": 756 },
+      { "browser": "Safari", "count": 423 },
+      { "browser": "Firefox", "count": 189 }
+    ],
+    "byReferrer": [
+      { "referrer": "twitter.com", "count": 412 },
+      { "referrer": "facebook.com", "count": 287 },
+      { "referrer": "direct", "count": 543 }
+    ],
+    "overTime": [
+      { "date": "2024-06-01", "count": 45 },
+      { "date": "2024-06-02", "count": 67 },
+      { "date": "2024-06-03", "count": 89 }
+    ]
+  }
+}
+```
+
+## Geo Targeting
+
+Create links that redirect to different URLs based on the visitor's country.
+
+```json
+{
+  "destinationUrl": "https://example.com/default",
+  "geoTargets": {
+    "US": "https://example.com/us",
+    "GB": "https://example.com/uk",
+    "DE": "https://example.com/de"
+  }
+}
+```
+
+## Device Targeting
+
+Create links that redirect to different URLs based on the visitor's device.
+
+```json
+{
+  "destinationUrl": "https://example.com/default",
+  "deviceTargets": {
+    "mobile": "https://m.example.com",
+    "tablet": "https://tablet.example.com"
+  },
+  "iosUrl": "https://apps.apple.com/app/myapp",
+  "androidUrl": "https://play.google.com/store/apps/details?id=com.myapp"
+}
+```
+
+## Advanced Examples
+
+### Create Link with UTM Parameters
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destinationUrl": "https://example.com/product",
+    "slug": "summer-sale-2024",
+    "utmSource": "email",
+    "utmMedium": "newsletter",
+    "utmCampaign": "summer-sale",
+    "utmTerm": "promo",
+    "utmContent": "cta-button"
+  }'
+```
+
+### Create Password-Protected Link
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destinationUrl": "https://example.com/premium-content",
+    "slug": "exclusive-access",
+    "password": "secure123",
+    "title": "Premium Content Access"
+  }'
+```
+
+### Create Link with Expiration
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destinationUrl": "https://example.com/flash-sale",
+    "slug": "flash-sale",
+    "expiresAt": "2024-12-31T23:59:59Z",
+    "clickLimit": 1000
+  }'
+```
+
+### Create Link with Geo + Device Targeting
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destinationUrl": "https://example.com/default",
+    "slug": "smart-link",
+    "geoTargets": {
+      "US": "https://example.com/us",
+      "GB": "https://example.com/uk",
+      "DE": "https://example.com/de"
+    },
+    "deviceTargets": {
+      "mobile": "https://m.example.com",
+      "tablet": "https://tablet.example.com"
+    },
+    "iosUrl": "https://apps.apple.com/app/myapp",
+    "androidUrl": "https://play.google.com/store/apps/details?id=com.myapp"
+  }'
+```
+
+### Bulk Create Links
+
+```bash
+# Create multiple links in a loop
+for url in "https://example.com/page1" "https://example.com/page2" "https://example.com/page3"; do
+  curl -X POST https://api.go2.gg/api/v1/links \
+    -H "Authorization: Bearer YOUR_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"destinationUrl\": \"$url\"}"
+done
+```
+
+### Using with JavaScript/TypeScript
+
+```typescript
+import { Go2 } from '@go2/sdk';
+
+const go2 = new Go2({ apiKey: 'YOUR_API_KEY' });
+
+// Create a link
+const link = await go2.links.create({
+  destinationUrl: 'https://example.com/product',
+  slug: 'summer-sale',
+  title: 'Summer Sale Campaign',
+  tags: ['marketing', 'summer-2024'],
+  utmSource: 'email',
+  utmCampaign: 'summer-sale'
+});
+
+console.log(`Created: ${link.shortUrl}`);
+
+// Get analytics
+const stats = await go2.links.stats(link.id);
+console.log(`Total clicks: ${stats.totalClicks}`);
+```
+
+### Using with Python
+
+```python
+import requests
+
+API_KEY = "YOUR_API_KEY"
+BASE_URL = "https://api.go2.gg/api/v1"
+
+headers = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json"
+}
+
+# Create a link
+response = requests.post(
+    f"{BASE_URL}/links",
+    headers=headers,
+    json={
+        "destinationUrl": "https://example.com/product",
+        "slug": "summer-sale",
+        "title": "Summer Sale Campaign"
+    }
+)
+
+link = response.json()["data"]
+print(f"Created: {link['shortUrl']}")
+
+# Get analytics
+stats_response = requests.get(
+    f"{BASE_URL}/links/{link['id']}/stats",
+    headers=headers
+)
+stats = stats_response.json()["data"]
+print(f"Total clicks: {stats['totalClicks']}")
+```
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| `SLUG_RESERVED` | The requested slug is reserved |
+| `SLUG_EXISTS` | The slug is already in use on this domain |
+| `INVALID_URL` | The destination URL is invalid |
+| `LIMIT_REACHED` | You've reached your plan's link limit |
+| `DOMAIN_NOT_VERIFIED` | The custom domain hasn't been verified |
+| `INVALID_EXPIRATION` | The expiration date is in the past |
+| `PASSWORD_TOO_SHORT` | Password must be at least 4 characters |

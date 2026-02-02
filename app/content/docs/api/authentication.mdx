@@ -1,0 +1,76 @@
+---
+title: Authentication
+description: Learn how to authenticate with the Go2 API using API keys.
+---
+
+The Go2 API uses API keys to authenticate requests. You can view and manage your API keys in the [dashboard](/dashboard/api-keys).
+
+## API Keys
+
+Your API key carries many privileges, so be sure to keep it secure. Don't share your API key in publicly accessible areas such as GitHub, client-side code, or public repositories.
+
+### Creating an API Key
+
+1. Go to [Dashboard > API Keys](/dashboard/api-keys)
+2. Click "Create API Key"
+3. Give your key a descriptive name
+4. Copy the key immediately - you won't be able to see it again
+
+### Using Your API Key
+
+Include your API key in the `Authorization` header of all requests:
+
+```bash
+curl https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer go2_your_api_key_here"
+```
+
+### API Key Format
+
+Go2 API keys follow this format:
+
+```
+go2_[random_characters]
+```
+
+The `go2_` prefix makes it easy to identify Go2 API keys in your code.
+
+## Rate Limiting
+
+API requests are rate limited based on your plan:
+
+| Plan | Requests per minute |
+|------|---------------------|
+| Free | 60 |
+| Pro | 300 |
+| Business | 1000 |
+| Enterprise | Custom |
+
+Rate limit headers are included in every response:
+
+```
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 59
+X-RateLimit-Reset: 1704067200
+```
+
+## Error Responses
+
+Authentication errors return a `401 Unauthorized` status:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "UNAUTHORIZED",
+    "message": "Invalid or expired API key"
+  }
+}
+```
+
+## Best Practices
+
+1. **Use environment variables** - Never hardcode API keys in your code
+2. **Rotate keys regularly** - Create new keys periodically and revoke old ones
+3. **Use separate keys** - Use different keys for development and production
+4. **Monitor usage** - Check your API key usage in the dashboard

@@ -1,0 +1,89 @@
+# =============================================================================
+# Base Wrangler Configuration
+# =============================================================================
+# This file contains shared configuration that can be referenced by
+# the API and Web wrangler.toml files.
+#
+# Note: Wrangler doesn't natively support config inheritance, so this
+# serves as documentation/reference for consistent configuration.
+# =============================================================================
+
+# Compatibility settings
+# Keep these in sync across all workers
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# -----------------------------------------------------------------------------
+# Environments
+# -----------------------------------------------------------------------------
+# 
+# Development (default):
+#   - Uses local bindings
+#   - Verbose logging
+#   - No rate limiting
+#
+# Staging:
+#   - Uses staging bindings
+#   - Full feature parity with production
+#   - Lower limits for testing
+#
+# Production:
+#   - Uses production bindings
+#   - Optimized for performance
+#   - Full rate limiting
+
+# -----------------------------------------------------------------------------
+# Secrets Required
+# -----------------------------------------------------------------------------
+#
+# Set these via `wrangler secret put <NAME>`:
+#
+# Authentication:
+#   - SUPABASE_URL
+#   - SUPABASE_ANON_KEY
+#   - SUPABASE_SERVICE_ROLE_KEY
+#
+# Payments:
+#   - STRIPE_SECRET_KEY
+#   - STRIPE_WEBHOOK_SECRET
+#
+# Observability:
+#   - SENTRY_DSN
+#   - POSTHOG_API_KEY
+#
+# Security:
+#   - TURNSTILE_SECRET_KEY
+#   - CSRF_SECRET
+
+# -----------------------------------------------------------------------------
+# Bindings Reference
+# -----------------------------------------------------------------------------
+#
+# D1 Database:
+#   binding = "DB"
+#   database_name = "shipquest-db"
+#
+# KV Namespace:
+#   binding = "KV_CONFIG"
+#
+# R2 Bucket:
+#   binding = "R2_BUCKET"
+#   bucket_name = "shipquest-bucket"
+#
+# Durable Objects:
+#   name = "RATE_LIMITER"
+#   class_name = "RateLimiter"
+#
+# Queues:
+#   binding = "BACKGROUND_QUEUE"
+#   queue = "shipquest-background-queue"
+
+# -----------------------------------------------------------------------------
+# Cron Triggers
+# -----------------------------------------------------------------------------
+#
+# Daily cleanup (midnight UTC):
+#   "0 0 * * *"
+#
+# Subscription sync (every 15 minutes):
+#   "*/15 * * * *"

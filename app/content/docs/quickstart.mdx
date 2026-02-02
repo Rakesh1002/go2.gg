@@ -1,0 +1,123 @@
+---
+title: Quick Start
+description: Create your first short link in minutes.
+order: 2
+---
+
+This guide will help you get started with Go2, whether you're using the web dashboard or the API.
+
+## Option 1: Web Dashboard (No Code)
+
+The fastest way to get started is through our web dashboard.
+
+### Step 1: Create an Account
+
+1. Go to [go2.gg/register](/register)
+2. Sign up with your email or OAuth provider
+3. Verify your email address
+
+### Step 2: Create Your First Link
+
+1. From the dashboard, click **"Create New Link"**
+2. Paste your destination URL
+3. (Optional) Customize the slug, add expiration, or set a password
+4. Click **"Create"**
+
+Your short link is ready! Share it anywhere.
+
+### Step 3: Track Performance
+
+Click on any link in your dashboard to see:
+
+- Total clicks and unique visitors
+- Geographic distribution
+- Device and browser breakdown
+- Referrer sources
+- Click history over time
+
+## Option 2: API Integration
+
+For developers who want programmatic access, Go2 provides a full REST API.
+
+### Step 1: Get Your API Key
+
+1. Go to **Dashboard → Settings → API Keys**
+2. Click **"Create New API Key"**
+3. Copy your key (it won't be shown again)
+
+### Step 2: Create a Link via API
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destinationUrl": "https://example.com/my-long-url",
+    "slug": "my-link"
+  }'
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "abc123",
+    "shortUrl": "https://go2.gg/my-link",
+    "destinationUrl": "https://example.com/my-long-url",
+    "slug": "my-link",
+    "clickCount": 0,
+    "createdAt": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+### Step 3: Retrieve Link Analytics
+
+```bash
+curl https://api.go2.gg/api/v1/links/abc123/stats \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+## Option 3: Public Link Creation (No Auth)
+
+For quick links without signing up, you can use our public endpoint:
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/public/links \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destinationUrl": "https://example.com/my-long-url"
+  }'
+```
+
+Note: Public links have limited features and are rate-limited.
+
+## Next Steps
+
+Now that you've created your first link, explore more features:
+
+- [Add a Custom Domain](/docs/features/domains) - Brand your links
+- [Enable Analytics](/docs/features/analytics) - Track your link performance
+- [Create QR Codes](/docs/features/qr-codes) - Generate scannable codes
+- [API Reference](/docs/api/reference) - Full API documentation
+
+## Troubleshooting
+
+### Link Not Redirecting
+
+- Verify the destination URL is valid and accessible
+- Check if the link has expired or reached its click limit
+- Ensure the slug doesn't conflict with reserved words
+
+### API Errors
+
+- Verify your API key is valid and not expired
+- Check you're using the correct HTTP method
+- Review the error response for specific details
+
+### Need More Help?
+
+- Check the [FAQ](/docs/faq)
+- [Contact support](/contact)

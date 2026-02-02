@@ -1,0 +1,59 @@
+{
+  "name": "go2",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "turbo dev --filter=@repo/web --filter=@repo/api --filter=@repo/db --filter=@repo/config --filter=@repo/auth --filter=@repo/payments --filter=@repo/analytics --filter=@repo/logger --filter=@repo/ui --filter=@repo/email",
+    "dev:all": "turbo dev",
+    "dev:web": "turbo dev --filter=@repo/web",
+    "dev:api": "turbo dev --filter=@repo/api",
+    "build": "turbo build --filter=!@repo/ai --filter=!@repo/extension --filter=!shipquest",
+    "build:all": "turbo build",
+    "build:api": "cd apps/api && pnpm build",
+    "build:web": "cd apps/web && pnpm build && pnpm build:cf",
+    "lint": "turbo lint",
+    "lint:fix": "biome lint --fix .",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "check": "biome check --fix .",
+    "typecheck": "turbo typecheck --filter=!@repo/ai --filter=!@repo/extension --filter=!shipquest",
+    "clean": "turbo clean && rm -rf node_modules",
+    "clean:all": "turbo clean && rm -rf node_modules apps/web/.next apps/web/.open-next apps/api/dist",
+    "db:migrate": "turbo db:migrate",
+    "db:migrate:dev": "turbo db:migrate:dev",
+    "db:seed": "turbo db:seed",
+    "db:studio": "turbo db:studio",
+    "cf:dev": "turbo cf:dev",
+    "cf:deploy": "turbo cf:deploy",
+    "cf:setup": "../scripts/setup-cloudflare.sh",
+    "deploy:api": "cd apps/api && wrangler deploy --env production",
+    "deploy:api:staging": "cd apps/api && wrangler deploy --env staging",
+    "deploy:web": "cd apps/web && NEXT_PUBLIC_APP_URL=https://go2.gg NEXT_PUBLIC_API_URL=https://api.go2.gg pnpm build && pnpm build:cf && npx wrangler deploy .open-next/worker.js --env production",
+    "deploy:web:staging": "cd apps/web && pnpm build && pnpm build:cf && wrangler deploy --env staging",
+    "deploy:staging": "pnpm deploy:api:staging && pnpm deploy:web:staging",
+    "deploy:production": "pnpm deploy:api && pnpm deploy:web",
+    "deploy": "pnpm deploy:production",
+    "preview:web": "cd apps/web && pnpm build && pnpm build:cf && wrangler dev --env production",
+    "preview:api": "cd apps/api && wrangler dev --env production",
+    "setup": "pnpm install && pnpm db:migrate:dev && pnpm db:seed",
+    "prepare": "husky",
+    "remotion": "cd apps/video && pnpm studio",
+    "remotion:render": "cd apps/video && pnpm render"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.10",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "lint-staged": {
+    "*.{js,ts,tsx,json,md,css}": ["biome format --write --no-errors-on-unmatched"],
+    "*.{ts,tsx,js,jsx}": ["biome lint --fix --no-errors-on-unmatched"]
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

@@ -1,0 +1,237 @@
+---
+title: Short Links
+description: Create and manage short links with Go2.
+order: 1
+section: Features
+---
+
+Go2 makes it easy to create short, memorable links that redirect to any URL. This guide covers all the features available for link management.
+
+## Creating Links
+
+### From the Dashboard
+
+1. Log in to your Go2 dashboard
+2. Click **"Create New Link"** or press `Ctrl/Cmd + K`
+3. Paste your destination URL
+4. (Optional) Customize the settings
+5. Click **"Create"**
+
+### From the API
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"destinationUrl": "https://example.com/my-page"}'
+```
+
+## Custom Slugs
+
+By default, Go2 generates a random 6-character slug. You can specify a custom slug:
+
+- **Length**: 1-50 characters
+- **Characters**: Letters (a-z, A-Z), numbers (0-9), hyphens (-), underscores (_)
+- **Case-sensitive**: `MyLink` and `mylink` are different slugs
+
+### Reserved Slugs
+
+Some slugs are reserved for system use:
+
+- `api`, `app`, `admin`, `dashboard`
+- `login`, `register`, `logout`
+- `health`, `status`, `ping`
+
+## Link Settings
+
+### Title & Description
+
+Add a title and description to organize your links. These are visible in your dashboard and help with searching.
+
+### Tags
+
+Apply tags to categorize links:
+
+```json
+{
+  "tags": ["marketing", "summer-2024", "social"]
+}
+```
+
+Filter links by tag in the dashboard or API.
+
+### Expiration
+
+Set an expiration date after which the link will stop redirecting:
+
+```json
+{
+  "expiresAt": "2024-12-31T23:59:59Z"
+}
+```
+
+Expired links return a 410 Gone response.
+
+### Click Limits
+
+Limit how many times a link can be clicked:
+
+```json
+{
+  "clickLimit": 1000
+}
+```
+
+Once the limit is reached, the link returns a 410 Gone response.
+
+### Password Protection
+
+Protect links with a password. Visitors will see a password prompt before being redirected:
+
+```json
+{
+  "password": "secretcode123"
+}
+```
+
+Passwords are hashed and never stored in plain text.
+
+## UTM Parameters
+
+Automatically append UTM parameters to your destination URLs:
+
+```json
+{
+  "utmSource": "twitter",
+  "utmMedium": "social",
+  "utmCampaign": "summer-sale"
+}
+```
+
+This transforms:
+- Input: `https://example.com/page`
+- Output: `https://example.com/page?utm_source=twitter&utm_medium=social&utm_campaign=summer-sale`
+
+## Geo Targeting
+
+Redirect visitors to different URLs based on their country:
+
+```json
+{
+  "destinationUrl": "https://example.com/global",
+  "geoTargets": {
+    "US": "https://example.com/us",
+    "GB": "https://example.com/uk",
+    "DE": "https://example.com/de",
+    "FR": "https://example.com/fr"
+  }
+}
+```
+
+Visitors from unlisted countries go to the default destination URL.
+
+## Device Targeting
+
+Redirect based on device type:
+
+```json
+{
+  "destinationUrl": "https://example.com",
+  "deviceTargets": {
+    "mobile": "https://m.example.com",
+    "tablet": "https://tablet.example.com"
+  }
+}
+```
+
+### App Deep Links
+
+For mobile apps, set platform-specific deep links:
+
+```json
+{
+  "destinationUrl": "https://example.com/app",
+  "iosUrl": "myapp://product/123",
+  "androidUrl": "intent://product/123#Intent;scheme=myapp;package=com.myapp;end"
+}
+```
+
+Go2 detects the operating system and redirects accordingly.
+
+## Link Preview Customization
+
+Customize how your link appears when shared on social media:
+
+```json
+{
+  "ogTitle": "Check out this amazing product!",
+  "ogDescription": "The best product you'll ever find.",
+  "ogImage": "https://example.com/og-image.png"
+}
+```
+
+These settings control the Open Graph meta tags on the link preview page.
+
+## Bulk Operations
+
+### Bulk Create
+
+Create multiple links at once via the API:
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links/bulk \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "links": [
+      {"destinationUrl": "https://example.com/page1"},
+      {"destinationUrl": "https://example.com/page2"},
+      {"destinationUrl": "https://example.com/page3"}
+    ]
+  }'
+```
+
+### Bulk Delete
+
+Archive multiple links:
+
+```bash
+curl -X DELETE https://api.go2.gg/api/v1/links/bulk \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"ids": ["lnk_abc123", "lnk_def456"]}'
+```
+
+## Link Analytics
+
+Every link automatically tracks:
+
+- **Total clicks** and unique visitors
+- **Geographic distribution** by country and city
+- **Device types** (mobile, desktop, tablet)
+- **Browsers** and operating systems
+- **Referrer sources**
+- **Click timeline**
+
+View analytics in the dashboard or via the API.
+
+## Archiving vs Deleting
+
+- **Archive**: Soft delete. Link stops redirecting but data is preserved. Can be restored.
+- **Delete**: Permanent removal. Cannot be undone.
+
+From the dashboard, you can toggle archived links visibility.
+
+## Best Practices
+
+1. **Use descriptive slugs**: `summer-sale` is better than `abc123`
+2. **Set expiration dates**: Clean up old campaign links
+3. **Apply tags**: Makes filtering and organization easier
+4. **Monitor analytics**: Track what's working
+5. **Use custom domains**: Builds brand trust
+
+## Next Steps
+
+- [Custom Domains](/docs/features/domains) - Brand your short links
+- [Analytics](/docs/features/analytics) - Deep dive into tracking
+- [QR Codes](/docs/features/qr-codes) - Generate scannable codes

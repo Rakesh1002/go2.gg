@@ -1,0 +1,132 @@
+---
+title: MCP Server for AI Assistants
+description: Connect Go2 to Claude, ChatGPT, and other AI assistants using MCP.
+---
+
+The Go2 MCP (Model Context Protocol) server enables AI assistants like Claude to manage your short links through natural language.
+
+## What is MCP?
+
+MCP (Model Context Protocol) is an open protocol that allows AI assistants to connect to external tools and services. With the Go2 MCP server, you can:
+
+- Create short links by describing what you want
+- Get analytics summaries in plain language
+- Manage links without leaving your AI chat
+
+## Installation
+
+```bash
+npm install -g @go2/mcp-server
+```
+
+Or use npx without installing:
+
+```bash
+npx @go2/mcp-server --api-key go2_xxx
+```
+
+## Setup with Claude Desktop
+
+1. Get your API key from [Dashboard → API Keys](/dashboard/api-keys)
+
+2. Edit your Claude Desktop config file:
+
+**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "go2": {
+      "command": "npx",
+      "args": ["@go2/mcp-server", "--api-key", "go2_xxx"]
+    }
+  }
+}
+```
+
+3. Restart Claude Desktop
+
+4. You should now see "Go2" in Claude's available tools
+
+## Available Commands
+
+Once connected, you can ask Claude to:
+
+### Create Links
+
+> "Create a short link for https://example.com/my-long-article-about-something-interesting"
+
+Claude will create the link and return the short URL.
+
+### Get Analytics
+
+> "How many clicks did my 'summer-sale' link get this week?"
+
+> "Show me my top performing links"
+
+### Manage Links
+
+> "Update my 'promo' link to point to the new landing page"
+
+> "Archive all links older than 30 days"
+
+### Bulk Operations
+
+> "Create short links for these 5 URLs: [list of URLs]"
+
+## Environment Variables
+
+Instead of passing the API key as an argument, you can set environment variables:
+
+```bash
+export GO2_API_KEY=go2_xxx
+export GO2_API_URL=https://api.go2.gg  # optional
+```
+
+Then run without arguments:
+
+```bash
+npx @go2/mcp-server
+```
+
+## Available Tools
+
+The MCP server exposes these tools to AI assistants:
+
+| Tool | Description |
+|------|-------------|
+| `create_link` | Create a new short link |
+| `list_links` | List existing links with filtering |
+| `get_link` | Get details of a specific link |
+| `update_link` | Update a link's properties |
+| `delete_link` | Delete a link |
+| `get_analytics` | Get analytics for a link |
+| `bulk_create_links` | Create multiple links at once |
+
+## Security
+
+- Your API key is stored locally in the Claude Desktop config
+- All communication uses HTTPS
+- The MCP server has read/write access based on your API key permissions
+
+## Troubleshooting
+
+### Claude doesn't show Go2 tools
+
+1. Verify your config file syntax is valid JSON
+2. Restart Claude Desktop completely
+3. Check the Claude logs for error messages
+
+### Authentication errors
+
+1. Verify your API key is correct
+2. Check the key hasn't expired
+3. Ensure the key has the required permissions
+
+### Rate limiting
+
+If you're hitting rate limits, consider:
+- Upgrading your plan for higher limits
+- Batching operations where possible
+- Adding delays between bulk operations

@@ -1,0 +1,200 @@
+name = "go2-api"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat_v2"]
+
+# Disable keepNames to fix "__name is not defined" error with Better Auth
+keep_names = false
+
+[dev]
+port = 8787
+
+# -----------------------------------------------------------------------------
+# Environment Variables
+# -----------------------------------------------------------------------------
+
+[vars]
+APP_ENV = "development"
+APP_URL = "http://localhost:3000"
+API_URL = "http://localhost:8787"
+AUTH_ADAPTER = "better-auth"
+DB_ADAPTER = "d1"
+PAYMENTS_ADAPTER = "stripe"
+ANALYTICS_ADAPTER = "posthog"
+RATE_LIMIT_ADAPTER = "durable-object"
+DEFAULT_DOMAIN = "go2.gg"
+EMAIL_FROM_TRANSACTIONAL = "Go2 <noreply@go2.gg>"
+EMAIL_FROM_MARKETING = "Rakesh <rakesh@go2.gg>"
+
+# -----------------------------------------------------------------------------
+# Bindings
+# -----------------------------------------------------------------------------
+
+# D1 Database
+# Create with: wrangler d1 create go2-db
+[[d1_databases]]
+binding = "DB"
+database_name = "go2-db"
+database_id = "YOUR_D1_DATABASE_ID"
+migrations_dir = "../../packages/db/drizzle"
+
+# KV Namespace for configuration/cache
+# Create with: wrangler kv:namespace create KV_CONFIG
+[[kv_namespaces]]
+binding = "KV_CONFIG"
+id = "YOUR_KV_CONFIG_NAMESPACE_ID"
+
+# KV Namespace for link cache (fast edge lookups)
+# Create with: wrangler kv:namespace create LINKS_KV
+[[kv_namespaces]]
+binding = "LINKS_KV"
+id = "YOUR_LINKS_KV_NAMESPACE_ID"
+
+# R2 Bucket (for QR codes, custom OG images)
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "go2-assets"
+
+# Analytics Engine for click tracking
+# Create with: wrangler analytics-engine create go2-clicks
+[[analytics_engine_datasets]]
+binding = "TRACKER"
+dataset = "go2_clicks"
+
+# Workers AI for slug suggestions
+[ai]
+binding = "AI"
+
+# Queues
+[[queues.producers]]
+binding = "BACKGROUND_QUEUE"
+queue = "go2-background-queue"
+
+[[queues.consumers]]
+queue = "go2-background-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# Durable Objects
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RateLimiter"]
+
+# -----------------------------------------------------------------------------
+# Custom Domain Routing
+# -----------------------------------------------------------------------------
+
+# Uncomment when deploying to production
+# routes = [
+#   { pattern = "go2.gg/*", custom_domain = true },
+#   { pattern = "api.go2.gg/*", custom_domain = true }
+# ]
+
+# -----------------------------------------------------------------------------
+# Cron Triggers
+# -----------------------------------------------------------------------------
+
+[triggers]
+crons = [
+  "0 0 * * *",    # Daily at midnight UTC - cleanup expired links, sessions
+  "*/15 * * * *", # Every 15 minutes - sync Stripe subscriptions
+  "0 */4 * * *",  # Every 4 hours - check link health
+  "0 */6 * * *",  # Every 6 hours - aggregate analytics
+  "0 8 * * *",    # Daily at 8 AM UTC - check usage alerts
+  "0 9 * * *",    # Daily at 9 AM UTC - process dunning reminders
+  "*/5 * * * *"   # Every 5 minutes - process drip campaign emails
+]
+
+# -----------------------------------------------------------------------------
+# Production Environment
+# -----------------------------------------------------------------------------
+
+[env.production]
+name = "go2-api-production"
+
+[env.production.vars]
+APP_ENV = "production"
+APP_URL = "https://go2.gg"
+API_URL = "https://api.go2.gg"
+AUTH_ADAPTER = "better-auth"
+DB_ADAPTER = "d1"
+PAYMENTS_ADAPTER = "stripe"
+ANALYTICS_ADAPTER = "posthog"
+RATE_LIMIT_ADAPTER = "durable-object"
+DEFAULT_DOMAIN = "go2.gg"
+EMAIL_FROM_TRANSACTIONAL = "Go2 <noreply@go2.gg>"
+EMAIL_FROM_MARKETING = "Rakesh <rakesh@go2.gg>"
+
+# Custom domain for API
+[[env.production.routes]]
+pattern = "api.go2.gg/*"
+zone_name = "go2.gg"
+
+# Production bindings (use same IDs as development or create separate)
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "go2-db"
+database_id = "YOUR_D1_DATABASE_ID"
+
+[[env.production.kv_namespaces]]
+binding = "KV_CONFIG"
+id = "YOUR_KV_CONFIG_NAMESPACE_ID"
+
+[[env.production.kv_namespaces]]
+binding = "LINKS_KV"
+id = "YOUR_LINKS_KV_NAMESPACE_ID"
+
+[[env.production.r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "go2-assets"
+
+[[env.production.analytics_engine_datasets]]
+binding = "TRACKER"
+dataset = "go2_clicks"
+
+[env.production.ai]
+binding = "AI"
+
+[[env.production.queues.producers]]
+binding = "BACKGROUND_QUEUE"
+queue = "go2-background-queue"
+
+[[env.production.queues.consumers]]
+queue = "go2-background-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+
+[[env.production.durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[env.production.triggers]
+crons = [
+  "0 0 * * *",
+  "*/15 * * * *",
+  "0 */4 * * *",
+  "0 */6 * * *",
+  "0 8 * * *",
+  "0 9 * * *",
+  "*/5 * * * *"
+]
+
+# Secrets (set via wrangler secret put --env production):
+# - STRIPE_SECRET_KEY
+# - STRIPE_WEBHOOK_SECRET
+# - CSRF_SECRET (required for Better Auth)
+# - GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+# - RESEND_API_KEY
+# - TURNSTILE_SECRET_KEY
+
+# -----------------------------------------------------------------------------
+# Staging Environment
+# -----------------------------------------------------------------------------
+
+[env.staging]
+name = "go2-api-staging"
+vars = { APP_ENV = "staging", APP_URL = "https://staging.go2.gg", DEFAULT_DOMAIN = "staging.go2.gg" }

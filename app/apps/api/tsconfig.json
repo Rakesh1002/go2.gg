@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "types": ["@cloudflare/workers-types"],
+    "paths": {
+      "@repo/config": ["../../packages/config/src"],
+      "@repo/db": ["../../packages/db/src"],
+      "@repo/auth": ["../../packages/auth/src"],
+      "@repo/logger": ["../../packages/logger/src"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

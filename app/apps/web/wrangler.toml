@@ -1,0 +1,86 @@
+# -----------------------------------------------------------------------------
+# Go2 Web - OpenNext Cloudflare Workers Configuration
+# -----------------------------------------------------------------------------
+# This file configures the Cloudflare Workers deployment for the Next.js web app
+# using OpenNext.
+#
+# Build: pnpm build:cf
+# Deploy: pnpm cf:deploy:production
+# -----------------------------------------------------------------------------
+
+name = "go2-web"
+main = ".open-next/worker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# Assets (static files)
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+# KV Namespace for Next.js cache (ISR, etc.)
+# Create with: wrangler kv:namespace create NEXT_CACHE_KV
+[[kv_namespaces]]
+binding = "NEXT_CACHE_KV"
+id = "YOUR_NEXT_CACHE_KV_NAMESPACE_ID"
+
+# -----------------------------------------------------------------------------
+# Environment Variables (Development)
+# -----------------------------------------------------------------------------
+
+[vars]
+NEXT_PUBLIC_APP_URL = "http://localhost:3000"
+NEXT_PUBLIC_API_URL = "http://localhost:8787"
+NEXT_PUBLIC_SITE_NAME = "Go2"
+NEXT_PUBLIC_SITE_DESCRIPTION = "The edge-native URL shortener"
+
+# -----------------------------------------------------------------------------
+# Production Environment
+# -----------------------------------------------------------------------------
+
+[env.production]
+name = "go2-web-production"
+main = ".open-next/worker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[env.production.assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+[[env.production.kv_namespaces]]
+binding = "NEXT_CACHE_KV"
+id = "YOUR_NEXT_CACHE_KV_NAMESPACE_ID"
+
+[env.production.vars]
+NEXT_PUBLIC_APP_URL = "https://go2.gg"
+NEXT_PUBLIC_API_URL = "https://api.go2.gg"
+NEXT_PUBLIC_SITE_NAME = "Go2"
+NEXT_PUBLIC_SITE_DESCRIPTION = "The edge-native URL shortener"
+
+# Custom domains for web app
+[[env.production.routes]]
+pattern = "go2.gg/*"
+zone_name = "go2.gg"
+
+[[env.production.routes]]
+pattern = "www.go2.gg/*"
+zone_name = "go2.gg"
+
+# Production public env vars (set via wrangler secret put --env production):
+# - NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+# - NEXT_PUBLIC_POSTHOG_KEY
+# - NEXT_PUBLIC_TURNSTILE_SITE_KEY
+
+# -----------------------------------------------------------------------------
+# Staging Environment
+# -----------------------------------------------------------------------------
+
+[env.staging]
+name = "go2-web-staging"
+
+[env.staging.vars]
+NEXT_PUBLIC_APP_URL = "https://staging.go2.gg"
+NEXT_PUBLIC_API_URL = "https://api-staging.go2.gg"
+NEXT_PUBLIC_SITE_NAME = "Go2 (Staging)"
+NEXT_PUBLIC_SITE_DESCRIPTION = "The edge-native URL shortener"

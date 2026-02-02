@@ -1,0 +1,49 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "tui",
+  "concurrency": "20",
+  "globalDependencies": [".env", ".env.local"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", ".output/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "clean": {
+      "cache": false
+    },
+    "db:migrate": {
+      "cache": false
+    },
+    "db:migrate:dev": {
+      "cache": false
+    },
+    "db:seed": {
+      "cache": false,
+      "dependsOn": ["db:migrate"]
+    },
+    "db:studio": {
+      "cache": false,
+      "persistent": true
+    },
+    "cf:dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "cf:deploy": {
+      "dependsOn": ["build"],
+      "cache": false
+    }
+  }
+}

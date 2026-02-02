@@ -1,0 +1,48 @@
+---
+title: Introduction
+description: Welcome to the Go2 documentation.
+order: 1
+---
+
+Go2 is an edge-native URL shortener built on Cloudflare's global network. With sub-10ms redirects from 310+ edge locations worldwide, Go2 is the fastest way to shorten, share, and track your links.
+
+## Why Go2?
+
+- **⚡ Blazing Fast** - Edge-native redirects in under 10ms globally
+- **🌍 Custom Domains** - Use your own branded domains with automatic SSL
+- **📊 Real-Time Analytics** - Track clicks, locations, devices, and referrers
+- **🔗 Smart Links** - Geo-targeting, device targeting, and deep linking
+- **🔒 Privacy-First** - No cookies, no cross-site tracking, GDPR compliant
+- **🛠️ Developer-Friendly** - Full REST API with comprehensive documentation
+
+## Core Features
+
+| Feature | Description |
+|---------|-------------|
+| Short Links | Create short, memorable links instantly |
+| Custom Domains | Brand your links with your own domain |
+| Analytics | Real-time click tracking and insights |
+| QR Codes | Generate dynamic QR codes for any link |
+| Link Management | Tags, expiration, password protection |
+| API Access | Programmatic link management |
+
+## Architecture
+
+Go2 is built entirely on Cloudflare's developer platform:
+
+- **Cloudflare Workers** - Serverless functions running at the edge
+- **Cloudflare KV** - Low-latency key-value storage for fast lookups
+- **Cloudflare D1** - SQLite database for link and user management
+- **Analytics Engine** - Real-time click analytics at scale
+
+This architecture means zero cold starts, automatic scaling, and global performance.
+
+## Getting Started
+
+Ready to create your first short link? Head over to the [Quick Start](/docs/quickstart) guide to get set up.
+
+## Need Help?
+
+- Check the documentation sidebar for detailed guides
+- [Contact support](/contact) for direct assistance
+- Follow us on [Twitter](https://x.com/BuildWithRakesh) for updates

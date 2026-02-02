@@ -1,0 +1,45 @@
+{
+  "name": "@repo/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./env": {
+      "types": "./dist/env.d.ts",
+      "import": "./dist/env.js"
+    },
+    "./features": {
+      "types": "./dist/features.d.ts",
+      "import": "./dist/features.js"
+    },
+    "./adapters": {
+      "types": "./dist/adapters.d.ts",
+      "import": "./dist/adapters.js"
+    },
+    "./pricing": {
+      "types": "./dist/pricing.d.ts",
+      "import": "./dist/pricing.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo node_modules"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "tsup": "^8.3.5",
+    "typescript": "^5"
+  }
+}

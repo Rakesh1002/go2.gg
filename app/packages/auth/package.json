@@ -1,0 +1,52 @@
+{
+  "name": "@repo/auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    },
+    "./rbac": {
+      "types": "./dist/rbac/index.d.ts",
+      "import": "./dist/rbac/index.js"
+    },
+    "./guards": {
+      "types": "./dist/guards/index.d.ts",
+      "import": "./dist/guards/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo node_modules"
+  },
+  "dependencies": {
+    "@better-auth/kysely-adapter": "1.5.0-beta.9",
+    "better-auth": "^1.2.0",
+    "better-auth-cloudflare": "^0.2.9",
+    "jose": "^5.9.6",
+    "kysely": "^0.28.10",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "@repo/db": "workspace:*",
+    "drizzle-orm": "^0.41.0",
+    "hono": "^4.6.14",
+    "tsup": "^8.3.5",
+    "typescript": "^5"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  }
+}

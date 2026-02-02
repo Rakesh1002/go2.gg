@@ -1,0 +1,308 @@
+---
+title: API Overview
+description: Introduction to the Go2 REST API.
+order: 1
+section: API
+---
+
+The Go2 API is a REST API that allows you to programmatically manage links, domains, and analytics. All endpoints use JSON for request and response bodies.
+
+## Base URL
+
+```
+https://api.go2.gg/api/v1
+```
+
+For local development:
+
+```
+http://localhost:8787/api/v1
+```
+
+## Authentication
+
+Most API endpoints require authentication using an API key. Include your key in the `Authorization` header:
+
+```bash
+curl https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+### Creating an API Key
+
+1. Log in to your Go2 dashboard
+2. Go to **Settings → API Keys**
+3. Click **"Create New API Key"**
+4. Give it a name and select permissions
+5. Copy the key (it won't be shown again)
+
+### API Key Permissions
+
+| Permission | Description |
+|------------|-------------|
+| `links:read` | View links |
+| `links:write` | Create, update, delete links |
+| `domains:read` | View domains |
+| `domains:write` | Add, verify, delete domains |
+| `analytics:read` | View click analytics |
+
+## Response Format
+
+All responses follow a consistent format:
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": { ... },
+  "meta": {
+    "page": 1,
+    "perPage": 20,
+    "total": 100,
+    "hasMore": true
+  }
+}
+```
+
+### Error Response
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid URL format",
+    "details": { ... }
+  }
+}
+```
+
+## HTTP Status Codes
+
+| Code | Description |
+|------|-------------|
+| `200` | Success |
+| `201` | Created |
+| `204` | No Content (successful delete) |
+| `400` | Bad Request - Invalid input |
+| `401` | Unauthorized - Missing or invalid API key |
+| `402` | Payment Required - Plan limit reached |
+| `403` | Forbidden - Insufficient permissions |
+| `404` | Not Found |
+| `409` | Conflict - Resource already exists |
+| `429` | Too Many Requests - Rate limited |
+| `500` | Internal Server Error |
+
+## Rate Limiting
+
+API requests are rate-limited based on your plan:
+
+| Plan | Rate Limit |
+|------|------------|
+| Free | 60 requests/minute |
+| Pro | 300 requests/minute |
+| Business | 1,000 requests/minute |
+| Enterprise | Custom |
+
+Rate limit headers are included in every response:
+
+```
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 45
+X-RateLimit-Reset: 1704067200
+```
+
+## Pagination
+
+List endpoints support pagination via query parameters:
+
+```bash
+GET /links?page=2&perPage=50
+```
+
+| Parameter | Default | Max | Description |
+|-----------|---------|-----|-------------|
+| `page` | 1 | - | Page number |
+| `perPage` | 20 | 100 | Items per page |
+
+## Endpoints
+
+### Links
+
+- `GET /links` - List all links
+- `POST /links` - Create a new link
+- `GET /links/:id` - Get a link by ID
+- `PATCH /links/:id` - Update a link
+- `DELETE /links/:id` - Delete (archive) a link
+- `GET /links/:id/stats` - Get link analytics
+
+### Domains
+
+- `GET /domains` - List all domains
+- `POST /domains` - Add a new domain
+- `GET /domains/:id` - Get domain details
+- `DELETE /domains/:id` - Remove a domain
+- `POST /domains/:id/verify` - Verify domain ownership
+
+### Usage
+
+- `GET /usage` - Get current usage stats
+
+## SDKs
+
+Official SDKs are coming soon:
+
+- JavaScript/TypeScript
+- Python
+- Go
+- PHP
+
+## Webhooks
+
+Go2 can send webhook notifications for link events. See [Webhooks](/docs/api/webhooks) for details.
+
+## Quick Start Examples
+
+### Create Your First Link
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destinationUrl": "https://example.com/my-page"
+  }'
+```
+
+### Get All Links
+
+```bash
+curl https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+### Get Link Analytics
+
+```bash
+curl https://api.go2.gg/api/v1/links/lnk_abc123/stats \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+### Using the SDK
+
+```typescript
+import { Go2 } from '@go2/sdk';
+
+const go2 = new Go2({ apiKey: 'YOUR_API_KEY' });
+
+// Create a link
+const link = await go2.links.create({
+  destinationUrl: 'https://example.com/product',
+  slug: 'my-product',
+  title: 'Product Page'
+});
+
+console.log(`Created: ${link.shortUrl}`);
+
+// Get analytics
+const stats = await go2.links.stats(link.id);
+console.log(`Clicks: ${stats.totalClicks}`);
+```
+
+## Common Patterns
+
+### Bulk Link Creation
+
+```typescript
+const urls = [
+  'https://example.com/page1',
+  'https://example.com/page2',
+  'https://example.com/page3'
+];
+
+const links = await Promise.all(
+  urls.map(url => go2.links.create({ destinationUrl: url }))
+);
+
+console.log(`Created ${links.length} links`);
+```
+
+### Link Expiration Management
+
+```typescript
+// Create link that expires in 30 days
+const expiresAt = new Date();
+expiresAt.setDate(expiresAt.getDate() + 30);
+
+const link = await go2.links.create({
+  destinationUrl: 'https://example.com/promo',
+  expiresAt: expiresAt.toISOString()
+});
+```
+
+### Geo-Targeted Links
+
+```typescript
+const link = await go2.links.create({
+  destinationUrl: 'https://example.com/default',
+  geoTargets: {
+    US: 'https://example.com/us',
+    GB: 'https://example.com/uk',
+    DE: 'https://example.com/de'
+  }
+});
+```
+
+## Error Handling
+
+Always handle errors appropriately:
+
+```typescript
+try {
+  const link = await go2.links.create({
+    destinationUrl: 'https://example.com'
+  });
+} catch (error) {
+  if (error.code === 'SLUG_EXISTS') {
+    console.error('Slug already in use');
+  } else if (error.code === 'LIMIT_REACHED') {
+    console.error('Plan limit reached');
+  } else {
+    console.error('Unexpected error:', error);
+  }
+}
+```
+
+## Rate Limiting Best Practices
+
+- Implement exponential backoff for retries
+- Cache responses when possible
+- Batch operations when creating multiple links
+- Monitor rate limit headers
+
+```typescript
+// Example with retry logic
+async function createLinkWithRetry(destinationUrl: string, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await go2.links.create({ destinationUrl });
+    } catch (error) {
+      if (error.status === 429 && i < retries - 1) {
+        const delay = Math.pow(2, i) * 1000; // Exponential backoff
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+```
+
+## Next Steps
+
+- [Links API Reference](/docs/api/links) - Create and manage short links
+- [Domains API Reference](/docs/api/domains) - Add custom domains
+- [Analytics API Reference](/docs/api/analytics) - Access click data
+- [Webhooks Guide](/docs/api/webhooks) - Real-time event notifications
+- [Integration Guides](/docs/integrations) - Connect with Zapier, Make, Slack

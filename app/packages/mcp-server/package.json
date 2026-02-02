@@ -1,0 +1,33 @@
+{
+  "name": "@go2/mcp-server",
+  "version": "0.1.0",
+  "description": "MCP Server for Go2 - enables AI assistants to manage short links",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "go2-mcp": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0"
+  },
+  "keywords": ["mcp", "model-context-protocol", "go2", "url-shortener", "ai", "claude"],
+  "license": "MIT"
+}

@@ -1,0 +1,64 @@
+---
+title: Project Structure
+description: Understanding the monorepo structure and package organization.
+order: 3
+---
+
+Go2 uses a monorepo structure with pnpm workspaces and Turborepo for build orchestration.
+
+## Directory Overview
+
+```
+├── apps/
+│   ├── api/              # Hono API (Cloudflare Workers)
+│   └── web/              # Next.js Frontend
+├── content/
+│   ├── blog/             # MDX blog posts
+│   └── docs/             # MDX documentation
+├── packages/
+│   ├── analytics/        # PostHog integration
+│   ├── auth/             # Authentication & RBAC
+│   ├── config/           # Configuration & feature flags
+│   ├── db/               # Database & Drizzle ORM
+│   ├── email/            # React Email templates
+│   ├── logger/           # Logging & Sentry
+│   ├── payments/         # Stripe integration
+│   └── ui/               # Shared UI components
+├── infra/
+│   ├── cloudflare/       # Wrangler configs
+│   └── stripe/           # Stripe products
+└── scripts/              # Setup & utility scripts
+```
+
+## Apps
+
+### apps/web
+
+The Next.js frontend application using the App Router.
+
+### apps/api
+
+The Hono API running on Cloudflare Workers with routes for links, domains, and analytics.
+
+## Packages
+
+Each package is self-contained with its own package.json, tsconfig.json, and src/index.ts.
+
+| Package | Purpose |
+|---------|---------|
+| @repo/config | Environment, site config, pricing, feature flags |
+| @repo/auth | Authentication utilities |
+| @repo/db | Database schemas (links, domains, clicks) |
+| @repo/payments | Stripe subscription integration |
+| @repo/email | Email templates |
+| @repo/ui | Shared UI components |
+
+## Configuration Files
+
+| File | Purpose |
+|------|---------|
+| pnpm-workspace.yaml | Workspace definition |
+| turbo.json | Build pipeline |
+| tsconfig.base.json | Shared TypeScript config |
+| biome.json | Linting and formatting |
+| env.example | Environment variables template |

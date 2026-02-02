@@ -1,0 +1,22 @@
+# Go2 Code Owners
+# These owners will be requested for review when someone opens a PR
+
+# Default owners for everything
+* @Rakesh1002
+
+# API
+/app/apps/api/ @Rakesh1002
+
+# Web app
+/app/apps/web/ @Rakesh1002
+
+# Packages
+/app/packages/ @Rakesh1002
+
+# Infrastructure
+/app/infra/ @Rakesh1002
+/.github/ @Rakesh1002
+
+# Documentation
+/docs/ @Rakesh1002
+/app/content/ @Rakesh1002

@@ -1,0 +1,156 @@
+---
+title: QR Codes API
+description: Generate and manage customizable QR codes.
+order: 6
+section: API
+---
+
+Create, customize, and track QR codes for any URL.
+
+## Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/qr/generate` | Generate QR code (no auth) |
+| `GET` | `/qr` | List saved QR codes |
+| `POST` | `/qr` | Save a QR code config |
+| `GET` | `/qr/:id` | Get QR code details |
+| `PATCH` | `/qr/:id` | Update QR code |
+| `DELETE` | `/qr/:id` | Delete QR code |
+| `GET` | `/qr/:id/download` | Download QR code image |
+
+## Generate QR Code
+
+Generate a QR code without authentication (public endpoint):
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/qr/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://go2.gg/my-link",
+    "size": 256,
+    "foregroundColor": "#000000",
+    "backgroundColor": "#FFFFFF",
+    "cornerRadius": 10,
+    "errorCorrection": "M",
+    "format": "svg"
+  }'
+```
+
+### Request Body
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `url` | string | Required | URL to encode |
+| `size` | number | 256 | Size in pixels (64-2048) |
+| `foregroundColor` | string | #000000 | Hex color for modules |
+| `backgroundColor` | string | #FFFFFF | Hex color for background |
+| `cornerRadius` | number | 0 | Module corner radius (0-50) |
+| `errorCorrection` | string | M | L, M, Q, or H |
+| `format` | string | svg | svg or png |
+
+### Error Correction Levels
+
+| Level | Recoverable | Use Case |
+|-------|-------------|----------|
+| L | 7% | Small, simple QR codes |
+| M | 15% | General use (default) |
+| Q | 25% | Moderate damage tolerance |
+| H | 30% | QR codes with logos |
+
+### Response
+
+For SVG format, the response is the raw SVG content with `Content-Type: image/svg+xml`.
+
+For other formats:
+
+```json
+{
+  "success": true,
+  "data": {
+    "svg": "<svg ...>",
+    "format": "svg",
+    "size": 256,
+    "url": "https://go2.gg/my-link"
+  }
+}
+```
+
+## Save QR Code
+
+Save a QR code configuration for tracking and easy access:
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/qr \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Business Card QR",
+    "url": "https://go2.gg/contact",
+    "size": 512,
+    "foregroundColor": "#1a365d",
+    "backgroundColor": "#FFFFFF"
+  }'
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "qr_abc123",
+    "name": "Business Card QR",
+    "url": "https://go2.gg/contact",
+    "size": 512,
+    "foregroundColor": "#1a365d",
+    "backgroundColor": "#FFFFFF",
+    "scanCount": 0,
+    "createdAt": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+## Download QR Code
+
+Download a saved QR code as an image:
+
+```bash
+curl https://api.go2.gg/api/v1/qr/qr_abc123/download?format=svg \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -o qr-code.svg
+```
+
+## Linking to Short Links
+
+For scan tracking, link your QR code to a Go2 short link:
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/qr \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Product QR",
+    "url": "https://go2.gg/product",
+    "linkId": "lnk_abc123"
+  }'
+```
+
+When linked, QR scans are tracked in your link analytics.
+
+## Dynamic vs Static QR Codes
+
+| Type | Behavior |
+|------|----------|
+| **Static** | URL is encoded directly. Cannot be changed. |
+| **Dynamic** | Points to a Go2 short link. Destination can be updated anytime. |
+
+Use dynamic QR codes (with `linkId`) when you might need to change the destination after printing.
+
+## Best Practices
+
+1. **Use high error correction** (Q or H) if adding a logo
+2. **Test scannability** before printing at final size
+3. **Maintain contrast** between foreground and background
+4. **Use dynamic QR codes** for printed materials
+5. **Track scans** by linking to Go2 short links

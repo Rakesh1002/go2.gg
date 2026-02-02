@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://go2.gg/docs
+    about: Check our documentation for guides and API reference.
+  - name: Discussions
+    url: https://github.com/Rakesh1002/go2.gg/discussions
+    about: Ask questions and share ideas in GitHub Discussions.

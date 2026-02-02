@@ -1,0 +1,277 @@
+---
+title: TypeScript SDK
+description: Official TypeScript SDK for the Go2 API.
+order: 1
+section: SDKs
+---
+
+The official TypeScript SDK for the Go2 API. Full type definitions, autocomplete support, and comprehensive documentation.
+
+## Installation
+
+```bash
+npm install @go2/sdk
+# or
+pnpm add @go2/sdk
+# or
+yarn add @go2/sdk
+```
+
+## Quick Start
+
+```typescript
+import { Go2 } from '@go2/sdk';
+
+// Initialize with your API key
+const go2 = new Go2({
+  apiKey: 'go2_your_api_key',
+});
+
+// Create a short link
+const link = await go2.links.create({
+  destinationUrl: 'https://example.com/very/long/path',
+  slug: 'my-link',
+});
+
+console.log(link.shortUrl); // https://go2.gg/my-link
+```
+
+## Configuration
+
+```typescript
+const go2 = new Go2({
+  // Required: Your API key
+  apiKey: 'go2_xxx',
+  
+  // Optional: Custom API URL (for self-hosted)
+  baseUrl: 'https://api.go2.gg',
+  
+  // Optional: Request timeout in milliseconds
+  timeout: 30000,
+});
+```
+
+## Resources
+
+The SDK provides access to all Go2 API resources:
+
+| Resource | Description |
+|----------|-------------|
+| `go2.links` | Create and manage short links |
+| `go2.domains` | Manage custom domains |
+| `go2.webhooks` | Configure webhooks |
+| `go2.galleries` | Link-in-Bio pages |
+| `go2.qr` | QR code generation |
+
+## Links
+
+### Create a Link
+
+```typescript
+const link = await go2.links.create({
+  destinationUrl: 'https://example.com',
+  slug: 'custom-slug',         // optional
+  title: 'My Link',            // optional
+  password: 'secret',          // optional
+  expiresAt: '2025-12-31',     // optional
+  utmSource: 'twitter',        // optional
+  utmMedium: 'social',         // optional
+  utmCampaign: 'launch',       // optional
+});
+```
+
+### List Links
+
+```typescript
+const { data, meta } = await go2.links.list({
+  page: 1,
+  perPage: 20,
+  search: 'marketing',  // optional
+});
+
+console.log(`Showing ${data.length} of ${meta.total} links`);
+```
+
+### Get Link Analytics
+
+```typescript
+const stats = await go2.links.stats('lnk_abc123', {
+  period: '7d',  // '24h', '7d', '30d', '90d', 'all'
+});
+
+console.log(`Total clicks: ${stats.totalClicks}`);
+console.log(`Unique clicks: ${stats.uniqueClicks}`);
+
+// Top countries
+stats.clicksByCountry.forEach(({ country, clicks }) => {
+  console.log(`${country}: ${clicks}`);
+});
+```
+
+## Webhooks
+
+### Create a Webhook
+
+```typescript
+const webhook = await go2.webhooks.create({
+  name: 'Analytics Pipeline',
+  url: 'https://your-server.com/webhooks/go2',
+  events: ['click', 'link.created', 'link.deleted'],
+});
+
+// IMPORTANT: Store the secret securely - it's only shown once!
+console.log('Webhook secret:', webhook.secret);
+```
+
+### Test a Webhook
+
+```typescript
+const result = await go2.webhooks.test('wh_abc123');
+
+if (result.success) {
+  console.log(`Success! Response time: ${result.duration}ms`);
+} else {
+  console.log(`Failed: ${result.response}`);
+}
+```
+
+## Galleries (Link-in-Bio)
+
+### Create a Bio Page
+
+```typescript
+const gallery = await go2.galleries.create({
+  slug: 'johndoe',
+  title: 'John Doe',
+  bio: 'Developer, creator, coffee enthusiast',
+  theme: 'gradient',
+  socialLinks: [
+    { platform: 'twitter', url: 'https://twitter.com/johndoe' },
+    { platform: 'github', url: 'https://github.com/johndoe' },
+  ],
+});
+```
+
+### Add Items
+
+```typescript
+// Add a link
+await go2.galleries.addItem(gallery.id, {
+  type: 'link',
+  title: 'My Portfolio',
+  url: 'https://johndoe.dev',
+  iconName: 'Globe',
+});
+
+// Add a section header
+await go2.galleries.addItem(gallery.id, {
+  type: 'header',
+  title: 'Projects',
+});
+
+// Publish when ready
+await go2.galleries.publish(gallery.id, true);
+```
+
+## QR Codes
+
+### Generate QR Code
+
+```typescript
+const qr = await go2.qr.generate({
+  url: 'https://go2.gg/my-link',
+  size: 512,
+  foregroundColor: '#1a365d',
+  backgroundColor: '#FFFFFF',
+  cornerRadius: 10,
+  errorCorrection: 'H',  // High - best for logos
+});
+
+// qr.svg contains the SVG markup
+```
+
+### Save QR Code with Tracking
+
+```typescript
+const qr = await go2.qr.create({
+  name: 'Business Card QR',
+  url: 'https://go2.gg/vcard',
+  linkId: 'lnk_abc123',  // Link to track scans
+});
+
+// Later, check scan count
+const updated = await go2.qr.get(qr.id);
+console.log(`Scans: ${updated.scanCount}`);
+```
+
+## Error Handling
+
+```typescript
+import { Go2, Go2Error } from '@go2/sdk';
+
+const go2 = new Go2({ apiKey: 'go2_xxx' });
+
+try {
+  const link = await go2.links.create({
+    destinationUrl: 'not-a-valid-url',
+  });
+} catch (error) {
+  if (error instanceof Go2Error) {
+    console.error('Go2 API Error:');
+    console.error(`  Message: ${error.message}`);
+    console.error(`  Code: ${error.code}`);
+    console.error(`  Status: ${error.status}`);
+    
+    if (error.code === 'VALIDATION_ERROR') {
+      console.error('  Details:', error.details);
+    }
+  } else {
+    // Network or other error
+    throw error;
+  }
+}
+```
+
+### Error Codes
+
+| Code | Description |
+|------|-------------|
+| `VALIDATION_ERROR` | Invalid input data |
+| `NOT_FOUND` | Resource not found |
+| `FORBIDDEN` | Insufficient permissions |
+| `RATE_LIMITED` | Too many requests |
+| `TIMEOUT` | Request timed out |
+| `NETWORK_ERROR` | Connection failed |
+
+## TypeScript Types
+
+All types are exported for use in your applications:
+
+```typescript
+import type {
+  Link,
+  CreateLinkInput,
+  LinkStats,
+  Domain,
+  Webhook,
+  Gallery,
+  GalleryItem,
+  QRCode,
+} from '@go2/sdk';
+
+// Use in your functions
+async function createCampaignLink(
+  campaign: string
+): Promise<Link> {
+  return go2.links.create({
+    destinationUrl: `https://example.com/${campaign}`,
+    utmCampaign: campaign,
+  });
+}
+```
+
+## Next Steps
+
+- [API Reference](/docs/api/overview) - Full API documentation
+- [Webhooks Guide](/docs/api/webhooks) - Set up real-time events
+- [Examples](https://github.com/rakesh1002/go2.gg/tree/main/examples) - Code examples

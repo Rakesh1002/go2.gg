@@ -1,0 +1,186 @@
+---
+title: Zapier Integration
+description: Connect Go2 to 6,000+ apps with Zapier automation.
+---
+
+Connect Go2 to thousands of apps and automate your link management workflows.
+
+## Overview
+
+With Zapier, you can automatically create short links, track clicks, and sync data between Go2 and your favorite tools like:
+
+- **CRM**: Salesforce, HubSpot, Pipedrive
+- **Email**: Gmail, Mailchimp, SendGrid
+- **Social Media**: Twitter, LinkedIn, Facebook
+- **E-commerce**: Shopify, WooCommerce, Stripe
+- **Analytics**: Google Analytics, Mixpanel
+- **And 6,000+ more apps**
+
+## Getting Started
+
+### 1. Create a Zapier Account
+
+If you don't have one, [sign up for Zapier](https://zapier.com/sign-up) (free plan available).
+
+### 2. Get Your Go2 API Key
+
+1. Log in to your Go2 dashboard
+2. Go to **Settings → API Keys**
+3. Click **"Create New API Key"**
+4. Copy the key (you'll need it for Zapier)
+
+### 3. Connect Go2 to Zapier
+
+1. Go to [Zapier's Go2 integration page](https://zapier.com/apps/go2/integrations)
+2. Click **"Connect Go2"**
+3. Enter your API key when prompted
+4. Test the connection
+
+## Common Zaps
+
+### Create Short Links from New Emails
+
+**Trigger**: New email in Gmail  
+**Action**: Create short link in Go2
+
+**Use Case**: Automatically shorten links in incoming emails and add them to your link library.
+
+**Setup**:
+1. Choose Gmail as trigger → "New Email"
+2. Choose Go2 as action → "Create Link"
+3. Map email content to `destinationUrl`
+4. Optionally add tags like `["email", "incoming"]`
+
+### Post Short Links to Social Media
+
+**Trigger**: New link created in Go2  
+**Action**: Post to Twitter/LinkedIn
+
+**Use Case**: Automatically share new links on social media when created.
+
+**Setup**:
+1. Choose Go2 as trigger → "New Link Created"
+2. Choose Twitter as action → "Create Tweet"
+3. Map `shortUrl` to tweet content
+4. Add link title as tweet text
+
+### Track Link Clicks in Google Sheets
+
+**Trigger**: Link clicked in Go2  
+**Action**: Add row to Google Sheets
+
+**Use Case**: Maintain a spreadsheet of all link clicks for reporting.
+
+**Setup**:
+1. Choose Go2 as trigger → "Link Clicked"
+2. Choose Google Sheets as action → "Create Spreadsheet Row"
+3. Map click data: date, country, device, referrer
+
+### Sync Links to CRM
+
+**Trigger**: New link created in Go2  
+**Action**: Create record in Salesforce/HubSpot
+
+**Use Case**: Track marketing campaigns in your CRM.
+
+**Setup**:
+1. Choose Go2 as trigger → "New Link Created"
+2. Choose your CRM as action → "Create Record"
+3. Map link data to CRM fields
+
+### Send Slack Notifications for High-Performing Links
+
+**Trigger**: Link clicks exceed threshold  
+**Action**: Send Slack message
+
+**Use Case**: Get notified when a link goes viral.
+
+**Setup**:
+1. Choose Go2 as trigger → "Link Clicks" (with filter)
+2. Choose Slack as action → "Send Channel Message"
+3. Format message with link stats
+
+## Advanced Workflows
+
+### Multi-Step Zap: Email → Link → Social Media → Analytics
+
+1. **Trigger**: New email in Gmail
+2. **Action**: Extract URLs from email body
+3. **Action**: Create short link in Go2 for each URL
+4. **Action**: Post to Twitter with short link
+5. **Action**: Log to Google Sheets
+
+### Conditional Logic
+
+Use Zapier's filters to create conditional workflows:
+
+- **If** link clicks > 1000 → Send Slack notification
+- **If** link expires → Archive in CRM
+- **If** link from specific domain → Add special tag
+
+## Webhook Integration
+
+For more advanced automation, use Go2 webhooks with Zapier's Webhooks by Zapier:
+
+1. Set up a webhook in Go2 dashboard
+2. Use Zapier's "Catch Hook" trigger
+3. Process webhook payload in your Zap
+
+**Example Webhook Payload**:
+
+```json
+{
+  "event": "click",
+  "link": {
+    "id": "lnk_abc123",
+    "shortUrl": "https://go2.gg/summer-sale",
+    "destinationUrl": "https://example.com/product"
+  },
+  "click": {
+    "country": "US",
+    "device": "mobile",
+    "referrer": "twitter.com",
+    "timestamp": "2024-06-15T14:22:00Z"
+  }
+}
+```
+
+## Tips & Best Practices
+
+1. **Use Filters**: Add filters to avoid processing unwanted links
+2. **Batch Operations**: Use Zapier's built-in delays for bulk operations
+3. **Error Handling**: Set up error notifications for failed Zaps
+4. **Testing**: Always test your Zaps with sample data first
+5. **Rate Limits**: Be aware of Zapier's rate limits (varies by plan)
+
+## Troubleshooting
+
+### Connection Issues
+
+- Verify your API key is correct
+- Check API key permissions
+- Ensure your Go2 account is active
+
+### Missing Data
+
+- Check field mapping in Zap steps
+- Verify trigger conditions are met
+- Review Zap history for errors
+
+### Rate Limiting
+
+- Upgrade Zapier plan for higher limits
+- Add delays between steps
+- Use filters to reduce trigger frequency
+
+## Resources
+
+- [Zapier Go2 Integration](https://zapier.com/apps/go2/integrations)
+- [Zapier Documentation](https://zapier.com/help)
+- [Go2 API Documentation](/docs/api/overview)
+
+## Need Help?
+
+- Check [Zapier's support](https://zapier.com/help)
+- Review [Go2 API docs](/docs/api/overview)
+- Contact Go2 support for API-specific questions

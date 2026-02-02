@@ -1,0 +1,125 @@
+---
+title: UTM Parameter Tracking
+description: Learn how to use UTM parameters to track campaign performance.
+---
+
+UTM (Urchin Tracking Module) parameters help you track the effectiveness of your marketing campaigns. Go2 makes it easy to add and manage UTM parameters on your short links.
+
+## What are UTM Parameters?
+
+UTM parameters are tags added to URLs that help you track:
+
+- **Source** (`utm_source`): Where the traffic comes from (e.g., twitter, newsletter)
+- **Medium** (`utm_medium`): The marketing medium (e.g., social, email, cpc)
+- **Campaign** (`utm_campaign`): The specific campaign name
+- **Term** (`utm_term`): Paid search keywords
+- **Content** (`utm_content`): Differentiate similar content or links
+
+## Adding UTM Parameters
+
+### Via Dashboard
+
+When creating or editing a link, expand the "UTM Parameters" section:
+
+1. Enter your UTM values in the provided fields
+2. The parameters will be automatically appended to your destination URL
+
+### Via API
+
+```typescript
+const link = await go2.links.create({
+  destinationUrl: 'https://example.com/landing-page',
+  utmSource: 'twitter',
+  utmMedium: 'social',
+  utmCampaign: 'summer-2024',
+  utmContent: 'hero-cta',
+});
+```
+
+The resulting destination URL will be:
+```
+https://example.com/landing-page?utm_source=twitter&utm_medium=social&utm_campaign=summer-2024&utm_content=hero-cta
+```
+
+## Best Practices
+
+### Be Consistent
+
+Use consistent naming conventions across your organization:
+
+| Do | Don't |
+|----|-------|
+| `twitter` | `Twitter`, `tw`, `tweet` |
+| `email` | `Email`, `newsletter`, `mail` |
+| `cpc` | `paid`, `ppc`, `ads` |
+
+### Use Lowercase
+
+Always use lowercase for UTM parameters to avoid duplicate entries in analytics:
+
+```
+✅ utm_source=facebook
+❌ utm_source=Facebook
+```
+
+### Be Descriptive but Concise
+
+Campaign names should be identifiable but not overly long:
+
+```
+✅ utm_campaign=summer-sale-2024
+❌ utm_campaign=summer-sale-promotional-campaign-for-new-products-2024
+```
+
+## Tracking in Analytics
+
+### Google Analytics
+
+UTM-tagged links automatically appear in Google Analytics under:
+
+1. **Acquisition → All Traffic → Source/Medium**
+2. **Acquisition → Campaigns → All Campaigns**
+
+### Go2 Analytics
+
+Go2 captures UTM parameters in click events, allowing you to:
+
+- Filter link analytics by campaign
+- Compare performance across sources
+- Track which content drives the most clicks
+
+## Common UTM Combinations
+
+### Social Media
+
+```
+utm_source=twitter
+utm_medium=social
+utm_campaign=product-launch
+```
+
+### Email Marketing
+
+```
+utm_source=newsletter
+utm_medium=email
+utm_campaign=weekly-digest
+utm_content=top-story
+```
+
+### Paid Advertising
+
+```
+utm_source=google
+utm_medium=cpc
+utm_campaign=brand-awareness
+utm_term=url+shortener
+```
+
+### Influencer Campaigns
+
+```
+utm_source=creator-name
+utm_medium=influencer
+utm_campaign=holiday-2024
+```

@@ -1,0 +1,186 @@
+# =============================================================================
+# Go2.gg - Git Ignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Credentials & Secrets
+# -----------------------------------------------------------------------------
+credentials/
+*.pem
+*.p12
+*.key
+
+# -----------------------------------------------------------------------------
+# Dependencies
+# -----------------------------------------------------------------------------
+node_modules/
+.pnpm-store/
+.pnpm-debug.log
+
+# -----------------------------------------------------------------------------
+# Build Outputs
+# -----------------------------------------------------------------------------
+dist/
+build/
+out/
+.next/
+.open-next/
+.vercel/
+.output/
+
+# -----------------------------------------------------------------------------
+# Turborepo
+# -----------------------------------------------------------------------------
+.turbo/
+
+# -----------------------------------------------------------------------------
+# Cloudflare
+# -----------------------------------------------------------------------------
+.wrangler/
+.dev.vars
+.mf/
+wrangler.toml.bak
+
+# -----------------------------------------------------------------------------
+# Environment Files
+# -----------------------------------------------------------------------------
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env*.local
+!.env.example
+
+# -----------------------------------------------------------------------------
+# IDE / Editor
+# -----------------------------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+*.sublime-project
+
+# -----------------------------------------------------------------------------
+# OS Generated Files
+# -----------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# -----------------------------------------------------------------------------
+# Logs
+# -----------------------------------------------------------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# -----------------------------------------------------------------------------
+# Testing
+# -----------------------------------------------------------------------------
+coverage/
+.nyc_output/
+*.lcov
+
+# -----------------------------------------------------------------------------
+# TypeScript
+# -----------------------------------------------------------------------------
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# -----------------------------------------------------------------------------
+# Cache
+# -----------------------------------------------------------------------------
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+
+# -----------------------------------------------------------------------------
+# Misc
+# -----------------------------------------------------------------------------
+*.pem
+*.p12
+*.key
+*.crt
+
+# Local Netlify folder
+.netlify/
+
+# Sentry
+.sentryclirc
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Package manager locks (keep pnpm-lock.yaml)
+package-lock.json
+yarn.lock
+
+# Generated files
+*.generated.*
+
+# Drizzle
+drizzle/*.sql.bak
+
+# SQLite local databases
+*.sqlite
+*.sqlite3
+*.db
+
+# -----------------------------------------------------------------------------
+# Internal/Private (excluded from open source)
+# These belong in the private go2gg_admin repo
+# -----------------------------------------------------------------------------
+
+# Internal documentation
+research/
+*.plan.md
+DOCUMENTATION_ENHANCEMENTS.md
+rebrandly_feature_parity*.md
+
+# Reference codebases
+references/
+
+# Video/Marketing assets (Remotion)
+app/apps/video/
+
+# Claude/AI local settings
+.claude/
+
+# Internal admin docs
+.github/ADMIN_REPO.md
+
+# API/Web environment files (keep .env.example)
+app/apps/api/.env
+app/apps/web/.env
+app/apps/web/.env.local
+app/apps/web/.env.development
+app/apps/web/.env.production
+
+.cursor/
+scripts/
+credentials/
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.json.key
+

@@ -1,0 +1,32 @@
+{
+  "name": "@repo/logger",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./sentry": {
+      "types": "./dist/sentry.d.ts",
+      "import": "./dist/sentry.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo node_modules"
+  },
+  "dependencies": {
+    "@sentry/cloudflare": "^8.42.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5"
+  }
+}

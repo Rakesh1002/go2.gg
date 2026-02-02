@@ -1,0 +1,101 @@
+# =============================================================================
+# ShipQuest Docker Compose
+# =============================================================================
+# Development and production setup with all services
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose up web -d      # Start web only
+#   docker compose logs -f        # View logs
+#   docker compose down           # Stop all services
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Web Application (Next.js)
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - NEXT_PUBLIC_API_URL=http://localhost:3000/api
+    env_file:
+      - .env.local
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # API (Hono on Node.js)
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8787:8787"
+    environment:
+      - NODE_ENV=production
+      - PORT=8787
+    env_file:
+      - .env.local
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: shipquest
+      POSTGRES_PASSWORD: shipquest_password
+      POSTGRES_DB: shipquest
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shipquest"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis (Cache & Sessions)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Mailpit (Local Email Testing)
+  # ---------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
