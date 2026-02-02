@@ -267,14 +267,6 @@ This means:
 
 For proprietary/commercial use without AGPL obligations, [contact us](mailto:enterprise@go2.gg) about an enterprise license.
 
-## 🙏 Acknowledgments
-
-Go2 is built on the shoulders of giants:
-
-- [Dub.co](https://dub.co) — Inspiration for modern link management
-- [Cloudflare](https://cloudflare.com) — Edge infrastructure
-- [Vercel](https://vercel.com) — Next.js and frontend deployment
-- [Hono](https://hono.dev) — Ultrafast web framework
 
 ## 💼 Enterprise
 
