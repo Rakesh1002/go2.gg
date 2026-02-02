@@ -175,8 +175,10 @@ app/apps/web/.env.development
 app/apps/web/.env.production
 
 .cursor/
-scripts/
 credentials/
+
+# Private/internal scripts (not for open source)
+app/apps/web/scripts/submit-to-search-engines.ts
 
 # Private keys and certificates
 *.pem
