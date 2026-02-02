@@ -268,18 +268,6 @@ This means:
 For proprietary/commercial use without AGPL obligations, [contact us](mailto:enterprise@go2.gg) about an enterprise license.
 
 
-## 💼 Enterprise
-
-Need enterprise features, custom integrations, or dedicated support?
-
-- **Enterprise Support**: Priority support with SLAs
-- **Custom Integrations**: SSO, SAML, custom auth
-- **White-labeling**: Remove Go2 branding
-- **Volume Pricing**: Custom plans for high-volume usage
-- **On-premise**: Deploy within your VPC
-
-[Contact Enterprise Sales →](mailto:enterprise@go2.gg)
-
 ---
 
 <div align="center">
