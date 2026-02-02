@@ -1,17 +1,18 @@
 <div align="center">
 
-<img src="https://go2.gg/icon.svg" alt="Go2 Logo" width="80">
+<a href="https://go2.gg">
+  <img src="https://go2.gg/og-image.png" alt="Go2 - The Open Source Link Management Platform" width="100%">
+</a>
 
-# Go2
-
-### The Open Source Link Management Platform
+<br />
+<br />
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
 [![GitHub stars](https://img.shields.io/github/stars/Rakesh1002/go2.gg?style=social)](https://github.com/Rakesh1002/go2.gg)
 [![Built with Cloudflare Workers](https://img.shields.io/badge/Built%20with-Cloudflare%20Workers-F38020)](https://workers.cloudflare.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](https://www.typescriptlang.org/)
 
-**Go2** — The open-source, edge-native link management platform with sub-10ms redirects globally.
+**The open-source, edge-native link management platform with sub-10ms redirects globally.**
 
 [Website](https://go2.gg) · [Documentation](https://go2.gg/docs) · [Self-Hosting Guide](SELF_HOSTING.md)
 
