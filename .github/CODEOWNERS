@@ -1,0 +1,34 @@
+# Go2 Code Owners — auto-requested for review on PRs.
+# Paths reflect the public-repo layout: `apps/`, `packages/`, `scripts/`
+# live at the top level (the sync workflow mirrors `app/` to root).
+
+# Default — owner reviews everything that doesn't have a more specific match
+* @Rakesh1002
+
+# Server / API
+/apps/api/ @Rakesh1002
+
+# Web app
+/apps/web/ @Rakesh1002
+
+# Browser extension
+/apps/extension/ @Rakesh1002
+
+# Shared packages
+/packages/ @Rakesh1002
+
+# Infrastructure + DevOps
+/infra/ @Rakesh1002
+/.github/ @Rakesh1002
+/scripts/ @Rakesh1002
+
+# Docs + content
+/content/ @Rakesh1002
+/docs/ @Rakesh1002
+
+# Trust & safety — call out so abuse + Safe Browsing changes get the right eyes
+/apps/api/src/lib/safe-browsing.ts @Rakesh1002
+/apps/api/src/lib/slug-abuse.ts @Rakesh1002
+/apps/api/src/lib/threat-rescan.ts @Rakesh1002
+/apps/api/src/routes/v1/abuse.ts @Rakesh1002
+/SECURITY.md @Rakesh1002
