@@ -1,7 +1,17 @@
+<div align="center">
+
+<a href="https://go2.gg">
+  <img src="https://go2.gg/og-image.png" alt="Go2 — The Agentic URL Shortener" width="100%">
+</a>
+
+<br />
+
 # Go2 — The Agentic URL Shortener
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](./LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/Rakesh1002/go2.gg?style=social)](https://github.com/Rakesh1002/go2.gg)
 [![Built on Cloudflare](https://img.shields.io/badge/built%20on-Cloudflare%20Workers-F38020.svg)](https://workers.cloudflare.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![Trust & Safety](https://img.shields.io/badge/abuse-go2.gg%2Freport--abuse-red.svg)](https://go2.gg/report-abuse)
 
 **Branded short links your team controls — and an MCP server your AI agent can use.**
@@ -9,6 +19,8 @@ Sub-10ms global redirects, phishing-resistant by default, attribution that
 tracks every click back to the human *or* the agent that created the link.
 
 [**Try go2.gg free →**](https://go2.gg/register) &nbsp; [**Install MCP server →**](https://go2.gg/agents) &nbsp; [**Read the docs →**](https://go2.gg/docs)
+
+</div>
 
 ---
 
