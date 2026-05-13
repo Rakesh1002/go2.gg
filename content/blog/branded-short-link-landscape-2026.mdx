@@ -1,0 +1,157 @@
+---
+title: "The Branded Short Link Landscape in 2026: An Honest Field Guide"
+description: "Twelve link tools, four categories, one shifting market. A fair-minded survey of where Bitly, Dub, Rebrandly, Linktree, and the open-source crew sit today — and what's about to change."
+date: "2026-04-22"
+author: "Go2 Team"
+authorBio: "We've used most of these tools, paid for several, and built the one this blog is hosted on."
+authorImage: "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400&h=400&fit=crop&q=80"
+image: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&h=900&fit=crop&q=80"
+tags: ["competition", "industry", "comparison"]
+---
+
+You'd think "URL shortener" would be a settled problem in 2026. It mostly is — and yet there are at least a dozen real products, each leaning into a different shape of the work. If you're picking one, the trick is matching the tool to your actual job, not the marketing.
+
+This is a survey written from the inside of one of those products (Go2). I'm going to try to be honest about what each tool does well — including the ones we compete with — because the worst thing I can do for you is sell you something that doesn't fit.
+
+> **Quick orientation:** the space splits into four buckets. Classic shorteners (Bitly, TinyURL, T.LY). Branded marketing platforms (Rebrandly, Replug, Pixelme, Switchy). Open-source / developer-first (Dub, Sink, YOURLS). Link-in-bio (Linktree, Beacons, Stan). Each bucket optimizes for a different job. Most teams need one tool from one bucket, not all four.
+
+![Network landscape concept](https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## The four buckets
+
+### 1. Classic shorteners
+
+**The job:** Turn a long URL into a short one. Maybe see how many people clicked.
+
+**Who's here:** Bitly is the granddaddy. TinyURL is the teenager. T.LY is the indie favorite. Bitly has the most install base by a wide margin and the most credibility with non-technical buyers.
+
+**What they're good at:** Reliability, recognizable URL prefix, mature analytics for the price. Bitly's free tier (50 links/month) is enough for casual users. The dashboard is genuinely well-designed for marketing managers who don't want to think about infrastructure.
+
+**Where they hurt:** Custom domains start at around $35/month at Bitly's Core plan, which is the table-stakes request from any agency. Their click data is real, but takes a day to land in the dashboard. API access has historically been gated to higher tiers. And they're not infrastructure-flavored — if you want to wire 50 links into your own data warehouse, you're often better off shipping a side project.
+
+### 2. Branded marketing platforms
+
+**The job:** Branded short URLs (`links.acme.com/promo`), QR codes, deep links, retargeting pixels, geo-targeting, password gating, A/B redirects.
+
+**Who's here:** Rebrandly is the incumbent. Replug, Pixelme, Switchy, Capsulink each carve a slightly different angle (Replug leans bio + retargeting, Pixelme leans deep-linking + paid social).
+
+**What they're good at:** Marketing-team workflows. Bulk imports from CSV. Scheduled link rotations. Pretty UI for non-engineers. Most of these tools include a Meta/Google/TikTok pixel layer so you can build retargeting audiences directly from your link clicks.
+
+**Where they hurt:** Pricing scales with link volume in ways that get expensive once a team is using them daily ($40-100+/month is normal). And they're closed-source, so when they shut down a feature or change billing, you're stuck.
+
+### 3. Open-source / developer-first
+
+**The job:** A short-link service you can read the code of, host yourself, or extend.
+
+**Who's here:** Dub.co (`dubinc/dub` on GitHub), Sink (Cloudflare-native, `ccbikai/sink`), YOURLS (PHP, the elder), and Go2 (us).
+
+**What they're good at:** Code is auditable. APIs are first-class. Self-hostable or near-self-hostable. Strong dev ergonomics — Dub's TypeScript SDK and React UI quality are legitimately top of the pack. Sink is the simplest one to spin up on Cloudflare if you want a personal shortener in 15 minutes. YOURLS is the most battle-tested.
+
+**Where they hurt:** Less polish on marketing-first features (bulk schedule, link-in-bio templates) than the branded category. Smaller ecosystems. If you need an enterprise sales rep, this isn't your bucket.
+
+### 4. Link-in-bio
+
+**The job:** Give a creator one URL that fans/customers visit and find every link.
+
+**Who's here:** Linktree is the category-defining product. Beacons, Stan, Snipfeed, Carrd. Some of these have grown into full creator platforms (digital products, payment links, embedded analytics).
+
+**What they're good at:** Visual templates, drag-and-drop reorders, mobile-first design, social-first analytics. Linktree's free tier is famously generous; their paid tier is mostly about removing branding and adding light commerce.
+
+**Where they hurt:** They're not really link shorteners — your `linktr.ee/yourname` isn't a tracked redirect with full analytics; it's a landing page. Mixing categories ("Bitly vs Linktree") is a false comparison; pick the right bucket first.
+
+![Tools and craft concept](https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## What's actually changing in 2026
+
+For the last decade the URL shortener market was settled. Bitly owned mainstream, Rebrandly owned branded, Linktree owned creators, Dub appeared as the OSS option, and that was the matrix.
+
+In the last 18 months, two forces have stretched it:
+
+**1. AI agents started producing links at scale.**
+A research agent generates a list of papers. A support bot sends help-center URLs. A sales-agent-as-a-service emails 200 prospects. The agent vendor's dashboard hosts the click data; the human owner sees nothing.
+
+Existing shorteners weren't built for this. None of them have a notion of "this link belongs to run `r_abc` of agent `support-v2` on behalf of customer `c_99`." If you're shipping AI-generated links and you want the click data in your own workspace, attributable to the run that made it, you currently have to build that layer yourself.
+
+This is the gap Go2 is built around (see our [previous post](/blog/mcp-for-url-shorteners)).
+
+**2. Edge infrastructure made redirect speed a real differentiator.**
+A traditional shortener routes you through a US-based server cluster, even if you're in Singapore. That's a 200-300ms detour on a click that should be instant. Cloudflare Workers, Sink, Dub, and Go2 all run on the edge — your link resolves in the same data center as the click. We measure under 10ms p50 globally; Sink and Dub are in the same neighborhood.
+
+Bitly's redirect path is heavier (multi-hop through their analytics layer), and you can feel it on mobile. For high-volume marketing campaigns this matters more than people admit.
+
+---
+
+## A field-guide table
+
+This is the table I'd give a friend asking "what should I pick?" — written in terms of the *job*, not the marketing.
+
+| Job | What I'd pick |
+|---|---|
+| "I just need a short link, free, sometimes" | TinyURL or Bitly's free tier |
+| "I need a branded short domain for an agency client" | Rebrandly (mature) or Replug (cheaper) |
+| "I'm a creator and want one URL for my socials" | Linktree (free) or Beacons |
+| "I want the OSS option my engineers won't fight me on" | Dub.co (best polish) or Sink (simplest deploy) |
+| "I'm shipping links from AI agents and need attribution" | Go2 (currently the only one with MCP + run attribution) |
+| "I'm doing high-volume paid social with retargeting" | Pixelme or Replug |
+| "I want the absolute simplest self-hosted thing" | Sink |
+| "I want production-grade with team features" | Go2 Business or Dub Pro |
+
+Notice how many slots have someone other than us. That's deliberate — Go2 doesn't compete head-on with Linktree (different category), and we're not trying to out-marketing Rebrandly (different audience). The places we win are where you need both: a real branded shortener for your team *and* an agent-native primitive for your AI.
+
+---
+
+## Where each tool's roadmap is heading
+
+Reading public commits, blog posts, and changelogs, here's where the major players seem to be aiming. (Caveat: I might be wrong about some of these. Please tell me if I am.)
+
+**Bitly** — Steady. Their public moves over the last 12 months have been around enterprise compliance, AppSumo-style migration tooling, and a much-improved bulk-create API. They're not chasing the agent narrative.
+
+**Rebrandly** — Doubling down on enterprise. SOC 2, SAML, audit logs. Less indie-friendly than they used to be. Pricing has crept up.
+
+**Dub.co** — The most ambitious of the OSS shorteners. Recently shipped link-in-bio (`dub.co/bio`), an MCP server is rumored / partially announced, and the SDK ergonomics keep getting better. If you're a developer and you don't need Go2's specific agent-attribution stack, Dub is excellent.
+
+**Sink** — Stays small on purpose. Best "I want to host my own personal shortener" project. Won't grow into a SaaS.
+
+**Linktree** — Has quietly become a payments + creator commerce platform. Less about links, more about the page. Different category now.
+
+**Pixelme / Replug** — Aggressive on the deep-linking + paid social retargeting layer. If your job is paid acquisition, look here.
+
+![Decisions and craft](https://images.unsplash.com/photo-1432888622747-4eb9a8efeb07?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## Where Go2 fits
+
+Worth being explicit. Go2 is opinionated, and the opinions are:
+
+1. **Branded short links should be free** at the entry tier — not a paywalled feature. Custom domains are included from $0.
+2. **Edge speed is non-negotiable.** Sub-10ms p50 redirects on Cloudflare's network.
+3. **Agent attribution is a first-class column**, not a UTM parameter that gets stripped at the next hop. `agent_id`, `agent_run_id`, `actor_id`, `tool_call_id` are stored, indexed, and queryable.
+4. **The redirect path is open source.** Auditable on GitHub. You can read every line of code that handles your traffic.
+5. **The platform is MCP-native.** A 16-tool MCP server is part of the product, not a third-party shim.
+
+If your job is "ship branded short links for a creator's social bio," Go2 is overkill — pick Linktree. If your job is "drive paid social retargeting for an e-commerce brand," Go2 works but Pixelme is more specialized.
+
+If your job is anything that includes the phrase *"my AI agent should be able to do this"* — that's the hole in the market we're filling.
+
+---
+
+## A request
+
+If you're building in this space, I want to know. Not to compete — to coordinate. There are lots of integrations that should exist (Dub ↔ Go2 link migration, Pixelme ↔ Go2 retargeting bridge, observability vendors pulling Go2 attribution into their trace UI) and very few people who care enough to build them. Email me: `rr@roushan.xyz`.
+
+If you're picking and you want a second opinion, email me too. Even if Go2 isn't the answer.
+
+The market's about to get more interesting, not less. Worth picking the right tool.
+
+---
+
+**Related reading on this blog**
+
+- [MCP for URL Shorteners: Building the First Agent-Native Link Platform](/blog/mcp-for-url-shorteners)
+- [How We Made Every Click Redirect in Under 10ms](/blog/sub-10ms-edge-redirects)
+- [5 Things Go2 Does That Bitly Doesn't](/blog/5-things-go2-does-that-bitly-doesnt)

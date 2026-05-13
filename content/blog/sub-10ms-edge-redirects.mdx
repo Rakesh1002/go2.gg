@@ -1,0 +1,287 @@
+---
+title: "How We Made Every Click Redirect in Under 10 Milliseconds"
+description: "The full architecture behind Go2's edge redirect path: Cloudflare Workers, KV, D1, and the click pipeline that runs in the same data center as the user. With code, a budget breakdown, and the honest trade-offs."
+date: "2026-04-01"
+author: "Go2 Team"
+authorBio: "We spend more time than is reasonable thinking about redirect latency."
+authorImage: "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400&h=400&fit=crop&q=80"
+image: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&h=900&fit=crop&q=80"
+tags: ["engineering", "performance", "edge"]
+---
+
+The reason we made redirect speed a top-three priority is unromantic: every 100ms of redirect latency costs you about 1% of click-throughs. A user who taps a shortened link in Instagram, sees a half-second of blank screen, and decides to scroll on instead of waiting is gone forever. Multiply that by your ad spend and the math gets uncomfortable.
+
+Most URL shorteners run a redirect path that looks something like:
+
+```
+User in Berlin
+    ↓ 80ms TLS handshake (US-East server)
+    ↓ 90ms server work (lookup link, log click)
+    ↓ 80ms response back to Berlin
+    ↓ 30ms browser navigation
+─────────────────────────────────────
+≈ 280ms total before destination loads
+```
+
+That's a typical experience on Bitly from outside the US. We measured Go2's p50 from the same starting point at **8ms**. This post is how.
+
+> **The architecture in one breath:** Cloudflare Workers redirect handler running in 330+ cities. KV (key-value store) for the link table, replicated globally with sub-millisecond reads. D1 (SQLite at the edge) for analytics writes, fanned out asynchronously after the redirect returns. No origin server in the hot path.
+
+![Edge network concept](https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## The latency budget
+
+Here's the full breakdown of what happens between someone tapping a link and the destination URL starting to load. p50 numbers from our production telemetry, measured from a global mix of geographies.
+
+| Phase | Time (p50) | Notes |
+|---|---|---|
+| TCP + TLS handshake to nearest CF data center | ~1ms | warm connection / 0-RTT for repeat visitors |
+| Worker invocation (no cold start) | ~0.2ms | Workers are isolates, not containers |
+| KV lookup for `slug → destinationUrl` | ~3ms | hot tier; cold reads can be ~20ms |
+| Pixel fan-out (server-side, parallel) | 0ms in path | fire-and-forget, doesn't block redirect |
+| Click logging (D1 write) | 0ms in path | queued post-response |
+| HTTP 302 response back to client | ~3ms | depends on user's RTT to nearest PoP |
+| **Total in critical path** | **~7-9ms** | |
+
+If you're looking at this and thinking "the KV lookup is the only meaningful cost," you're right. The whole optimization story below is variations on "make KV faster."
+
+---
+
+## The redirect handler (truncated, real)
+
+The actual handler is a few hundred lines including pixel handling, A/B logic, password gates, and bot detection. The hot path is shorter. This is approximately what runs on every click:
+
+```ts
+// apps/api/src/redirect.ts (simplified)
+
+export async function handleRedirect(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const slug = url.pathname.slice(1);
+
+  // 1. Hot lookup: KV read for slug → destination
+  const linkJson = await env.LINKS_KV.get(slug, "json");
+  if (!linkJson) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  const link = linkJson as StoredLink;
+
+  // 2. Revocation check (in-memory; the KV value already has it)
+  if (link.revoked) {
+    return new Response("Link no longer available", { status: 410 });
+  }
+
+  // 3. Build the redirect response RIGHT NOW.
+  //    Everything below this line runs *after* the client has the redirect.
+  const response = Response.redirect(link.destinationUrl, 302);
+
+  // 4. Click logging — fire-and-forget via waitUntil
+  ctx.waitUntil(
+    logClick(env, link, request).catch((err) =>
+      console.error("click log failed", err),
+    ),
+  );
+
+  // 5. Pixel fan-out — also via waitUntil
+  if (link.pixels?.length) {
+    ctx.waitUntil(firePixels(env, link, request));
+  }
+
+  return response;
+}
+```
+
+The trick is `ctx.waitUntil`. Cloudflare Workers will keep the function alive *after* responding to the user, so the click write and pixel fire-out happen on background time, not blocking time. The user sees the redirect; we get the data.
+
+This is the single biggest difference between an edge-native shortener and one running on a traditional server cluster. On a server cluster, the click log usually goes through a synchronous `INSERT INTO clicks ...` before the redirect returns, because nobody wants to lose a click row to a crash. We get that durability for free from D1's write-ahead log + Workers' execution context.
+
+---
+
+## Why KV, not D1, for the lookup
+
+D1 is great. SQLite at the edge, real foreign keys, real transactions, real rollups. But D1 reads are slower than KV reads — a few milliseconds vs sub-millisecond — and the link lookup is on the hot path of every click.
+
+So we partitioned:
+
+| Store | Purpose | Latency | Replicated? |
+|---|---|---|---|
+| KV | `slug → destination + flags` (the redirect table) | ~1ms hot, ~20ms cold | Yes, globally |
+| D1 | Analytics writes, link metadata, owner queries | ~5ms write, ~10ms read | Per-region |
+| R2 | QR PNG/SVG storage, exports | ~30ms read | Globally |
+
+Every link write goes to D1 first (the source of truth) and then fans out to KV (the hot read cache). KV is eventually consistent — there's a window of a few hundred milliseconds after `update_link` where the redirect might still go to the old destination. We accept that trade for the latency.
+
+For the hot path, this means: a click does **one KV read** and that's it. No D1 query. No origin server roundtrip. Just a key lookup against a globally-replicated kv store.
+
+![Storage architecture concept](https://images.unsplash.com/photo-1558494949-ef010cbdcc31?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## The thing nobody tells you about Cloudflare Workers cold starts
+
+Cloudflare advertises "no cold starts" for Workers. That's mostly true. What's *more* true is: a Worker that hasn't been hit in a given data center for a while will pay an isolate-spin-up cost on the first request — sub-millisecond, but real.
+
+For our redirect path, the workaround is dumb and effective: every link page in the dashboard pre-warms the redirect Worker for that slug's destination region by issuing a synthetic HEAD request. By the time a real user clicks the link, the isolate is hot.
+
+The code:
+
+```ts
+// On link create / update — pre-warm the redirect Worker
+async function prewarmRedirect(slug: string, regions: string[]) {
+  await Promise.all(
+    regions.map((region) =>
+      fetch(`https://${region}.go2.gg/${slug}`, {
+        method: "HEAD",
+        cf: { cacheTtl: 0 }, // bypass cache, force the Worker
+      }),
+    ),
+  );
+}
+```
+
+Not glamorous. Saves us the first-click latency tax that would otherwise show up in the long tail.
+
+---
+
+## Click pipeline — what happens after the redirect
+
+The user has their destination. We have a `waitUntil` callback running in the background. What does that callback actually do?
+
+```ts
+async function logClick(env: Env, link: StoredLink, request: Request) {
+  const click = {
+    linkId: link.id,
+    timestamp: Date.now(),
+    country: request.cf?.country ?? null,
+    device: parseDevice(request.headers.get("user-agent")),
+    browser: parseBrowser(request.headers.get("user-agent")),
+    os: parseOS(request.headers.get("user-agent")),
+    referrer: request.headers.get("referer") ?? null,
+    utm: extractUtm(new URL(request.url).searchParams),
+    isBot: detectBot(request),
+    // Agent attribution columns — populated if present
+    agentId: link.agentId ?? null,
+    agentRunId: link.agentRunId ?? null,
+    actorId: link.actorId ?? null,
+    toolCallId: link.toolCallId ?? null,
+  };
+
+  // Write directly to D1 (per-region instance)
+  await env.DB.prepare(
+    `INSERT INTO clicks (link_id, ts, country, device, browser, os, ref,
+                          utm_source, utm_medium, utm_campaign,
+                          is_bot, agent_id, agent_run_id, actor_id, tool_call_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  )
+    .bind(
+      click.linkId,
+      click.timestamp,
+      click.country,
+      click.device,
+      click.browser,
+      click.os,
+      click.referrer,
+      click.utm.source,
+      click.utm.medium,
+      click.utm.campaign,
+      click.isBot ? 1 : 0,
+      click.agentId,
+      click.agentRunId,
+      click.actorId,
+      click.toolCallId,
+    )
+    .run();
+}
+```
+
+D1 writes are SQLite, so they're fast — single-digit milliseconds. They're per-region (your Berlin click goes into the EU instance), and we run a nightly compaction that rolls up regional rows into the global analytics view.
+
+Bot detection is the boring-but-important part. We don't filter bots out of the count blindly — we tag them with `is_bot=1` and let the dashboard filter on display. That way you can see the real number when you want to (e.g. when debugging "why does my LinkedIn-shared link have 200 clicks immediately?" — answer: LinkedIn's link preview crawler, hi).
+
+---
+
+## Pixel fan-out
+
+Server-side pixels are the other thing on the post-redirect path. Eight platforms, one connection pool per:
+
+```ts
+async function firePixels(env: Env, link: StoredLink, request: Request) {
+  const eventPayload = {
+    eventName: "ViewContent",
+    timestamp: Math.floor(Date.now() / 1000),
+    userData: {
+      // Hashed for privacy — Meta requires SHA-256
+      ipAddress: await sha256(request.headers.get("cf-connecting-ip") ?? ""),
+      userAgent: request.headers.get("user-agent"),
+      country: request.cf?.country,
+    },
+    customData: {
+      linkSlug: link.slug,
+      linkId: link.id,
+    },
+  };
+
+  // Fan out to every pixel attached to this link, in parallel
+  await Promise.allSettled(
+    link.pixels.map((pixelId) => firePixel(env, pixelId, eventPayload)),
+  );
+}
+```
+
+`Promise.allSettled` (not `Promise.all`) so a single pixel platform's outage doesn't tank the whole batch. We log failures separately for retry.
+
+Server-side firing means iOS 14 ATT users count, ad-blockers don't matter, and the user's browser doesn't have to load anything extra. It's also the only way the iOS browser-based pixel actually still works in 2026.
+
+---
+
+## What we'd do differently if we were starting today
+
+A few honest second-guesses:
+
+1. **We'd put the lookup into Durable Objects instead of KV** if we were starting now. KV's eventual consistency window has bitten us a couple of times when a link was updated and the redirect kept going to the old URL for ~500ms. Durable Objects give you per-link strong consistency at a small extra cost. Worth it. The migration is on the roadmap.
+
+2. **We'd partition the click table earlier.** Our D1 click table got big enough to hurt analytics queries before we sharded it. `clicks` is now `clicks_2026_q1`, `clicks_2026_q2`, etc., and the dashboard reads the rolled-up view. Should have done this from week one.
+
+3. **We'd ship the agent-attribution columns from day one.** They were added six months in, and backfilling old click rows with NULL is fine but smells. If we were redoing the schema we'd put `agent_id`, `agent_run_id`, `actor_id`, `tool_call_id` in the original `CREATE TABLE`.
+
+---
+
+## Why this matters for your conversion math
+
+Numbers from our own benchmarking, with the caveat that "your mileage may vary":
+
+| Shortener | p50 redirect time (global) | Time-to-destination (full TLS round-trip) |
+|---|---|---|
+| Go2 | 8ms | ~120ms |
+| Sink (CF) | 12ms | ~130ms |
+| Dub.co | 15ms | ~140ms |
+| Bitly | ~180ms | ~350ms |
+| TinyURL | ~250ms | ~450ms |
+
+Reading this table, the only honest takeaway is: **edge-native shorteners are a different category than US-East-only shorteners.** The Go2 / Sink / Dub trio are all under 20ms. Bitly is a category up. And the gap shows up in conversion rate when you measure clicks-to-destination on mobile networks.
+
+---
+
+## Try it
+
+- **[Sign up free](/register)** and create your first link.
+- **[GitHub](https://github.com/rakesh1002/go2.gg)** to see the actual redirect handler.
+- **[Run your own benchmark](/benchmarks)** if you don't trust ours.
+
+If you want to compare your current shortener to Go2 on real numbers from your traffic, we have a benchmarking tool at `/benchmarks` that takes your existing slugs and runs the redirect against both Go2 and your current provider. No login needed; results in 30 seconds.
+
+The fastest thing I've ever heard a Bitly engineer say about latency was "it's not the bottleneck most of the time." For most of their customers, that's true. For the ones running paid social or AI-driven outreach where every 100ms costs you a percentage of CTR, it stops being true.
+
+---
+
+**Related**
+
+- [MCP for URL Shorteners](/blog/mcp-for-url-shorteners) — what runs *on top of* the redirect path.
+- [The Branded Short Link Landscape in 2026](/blog/branded-short-link-landscape-2026) — where each tool fits.
+- [5 Things Go2 Does That Bitly Doesn't](/blog/5-things-go2-does-that-bitly-doesnt) — the platform-feature gap, separate from latency.

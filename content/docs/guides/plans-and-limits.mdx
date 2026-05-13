@@ -1,0 +1,122 @@
+---
+title: Plans & Limits
+description: Pricing tiers, monthly quotas, and how Go2 enforces them across the API, MCP server, and dashboard.
+---
+
+Go2's plan ladder is built around the idea that **developer primitives should be free**. Every plan — including Free — ships with the full REST API, the MCP server, per-run agent attribution, and webhooks-grade analytics. The paid tiers buy you volume, team features, and org-grade security; they don't unlock the API.
+
+If you're integrating, this page is the source of truth for what each plan can do and what limits you'll hit.
+
+## At a glance
+
+| | **Free** | **Pro** | **Business** | **Scale** |
+| - | - | - | - | - |
+| Price | $0 | $9 / mo | $49 / mo | usage-based |
+| Tracked links per month | 100 | 2,000 | 20,000 | metered |
+| Attributed clicks per month | 5,000 | 100,000 | 500,000 | metered |
+| Custom domains | 1 | 5 | 25 | unlimited |
+| Team seats | 1 | 3 | 10 | unlimited |
+| Analytics retention | 30 days | 1 year | 2 years | 5 years |
+| Free-tier link auto-expiry | 60 days | never | never | never |
+| **REST API + OpenAPI spec** | ✓ | ✓ | ✓ | ✓ |
+| **MCP server (stdio + remote)** | ✓ | ✓ | ✓ | ✓ |
+| **Per-run agent attribution** | ✓ | ✓ | ✓ | ✓ |
+| API rate limit | 100 req/min | 1,000 req/min | 3,000 req/min | 10,000 req/min |
+| Webhooks · pixels · geo & device targeting | — | ✓ | ✓ | ✓ |
+| Link expiration · password protection · cloaking | — | ✓ | ✓ | ✓ |
+| Folders | — | 5 | 25 | unlimited |
+| Tags | 5 | 25 | unlimited | unlimited |
+| Bio pages | — | 1 | 10 | 100 |
+| A/B testing + conversion tracking | — | — | ✓ | ✓ |
+| SAML SSO + audit logs + RBAC | — | — | ✓ | ✓ |
+| Support | community | priority email | dedicated + 99.9% SLA | priority engineering |
+
+## What's free, forever
+
+These features stay on Free regardless of plan:
+
+- **REST API** — full CRUD over links, clicks, QR codes, organizations. OpenAPI spec at `/api/openapi.json`.
+- **MCP server** — `stdio` for Claude Desktop / Cursor / local agents, plus the remote Streamable-HTTP transport at `mcp.go2.gg/mcp` for hosted clients (Claude.ai, ChatGPT custom GPTs, Perplexity).
+- **Agent attribution** — every link can carry `agent_id`, `agent_run_id`, and `agent_actor_id`. Carried through to every click, queryable per run.
+- **Edge redirects** — sub-10ms redirect latency on all plans.
+- **QR codes** — branded with your logo, colors, and corner styles, with scan tracking.
+
+If you're an indie developer or running a hackathon project, you can ship a real agent on Free without ever upgrading.
+
+## When you'll need to upgrade
+
+The first ceiling most teams hit is one of:
+
+1. **You blow past 100 new links per month** — common once an agent loop starts auto-creating links. Pro at $9 takes you to 2,000.
+2. **You want webhooks** — for "ping me when a click hits this link." Pro and above.
+3. **You need a second seat** — Pro covers 3 collaborators; Business covers 10 with role-based access.
+4. **You need SSO or audit logs** — Business only. Required by most enterprise procurement.
+
+## How limits are enforced
+
+**Tracked links per month** — counted at link-creation time. The `/api/v1/links` endpoint returns a `403` with `code: "LINK_LIMIT_EXCEEDED"` once you cross your plan's `linksPerMonth` for the current calendar month. Resets on the 1st.
+
+**Attributed clicks per month** — counted on the click side. The redirect itself never blocks; we always serve the destination. Past your plan limit, individual click events stop being recorded in the `clicks` table (the link's `clickCount` rollup still increments). The dashboard meter shows the breach so you know to upgrade.
+
+**Free-tier link retention** — every link created on Free gets `policy_expires_at = createdAt + 60 days` stamped automatically. After that the redirect returns `410 Gone` with reason `free-tier retention (60 days)`. Upgrading clears the stamp on every link the org owns. See [`apps/api/src/lib/retention.ts`](https://github.com/Rakesh1002/go2gg/blob/main/apps/api/src/lib/retention.ts).
+
+**API rate limits** — enforced at the edge by a Cloudflare Durable Object. Exceeding returns `429` with `Retry-After`. The window is per-minute, per API key. Bursting is fine; sustained traffic above the plan limit throttles.
+
+**Custom domain quotas** — checked on `POST /api/v1/domains`. Once you hit your limit, you'll get `403` with `code: "DOMAIN_LIMIT_REACHED"` and a link to upgrade.
+
+## Programmatic plan checks
+
+The same limits power the dashboard, the API, and the MCP server. If you're writing your own agent and want to know your current usage:
+
+```bash
+curl https://api.go2.gg/api/v1/usage \
+  -H "Authorization: Bearer $GO2_API_KEY"
+```
+
+Returns:
+
+```json
+{
+  "data": {
+    "plan": "free",
+    "status": "active",
+    "linksThisMonth":         { "current": 18, "limit": 100,  "percentage": 18 },
+    "trackedClicksThisMonth": { "current": 412, "limit": 5000, "percentage": 8.24 },
+    "domains":                { "current": 0,  "limit": 1,   "percentage": 0 },
+    "teamMembers":            { "current": 1,  "limit": 1,   "percentage": 100 }
+  }
+}
+```
+
+The `planLimits` object that drives all of this lives in [`packages/config/src/pricing.ts`](https://github.com/Rakesh1002/go2gg/blob/main/packages/config/src/pricing.ts) — single source of truth for both the API quota gates and the marketing pricing page.
+
+## Scale tier
+
+Above 500K attributed clicks per month, you graduate to Scale, which is usage-based at **$0.40 per 1,000 agent-attributed events** with volume discounts beyond 10M events. Scale also unlocks:
+
+- 5-year analytics retention
+- Custom event meter (extend the `clicks` schema with your own dimensions)
+- Priority engineering support
+- AGPL self-host or commercial license ($5K/yr for closed-source use)
+
+If you expect to ship more than a million events a month, [contact sales](/contact?plan=scale) — we'll size the contract to your actual traffic.
+
+## Self-hosting
+
+Go2 is licensed AGPL-3.0. You can self-host the entire stack on your own Cloudflare account — one `wrangler deploy` for the API, one for the web app, no usage fees. The catch is the AGPL: any modifications you ship publicly need to be open-sourced. If that's a problem, the Scale-tier commercial license ($5K/yr) buys you closed-source rights.
+
+See [`SELF_HOSTING.md`](https://github.com/Rakesh1002/go2gg/blob/main/SELF_HOSTING.md) for the full setup walk-through.
+
+## Frequently asked questions
+
+**Do I need a paid plan to use the API?** No. Free includes the full REST API and MCP server. The only difference paid plans make is the per-minute rate ceiling (100 / 1,000 / 3,000 / 10,000 req/min from Free → Scale).
+
+**What happens when I hit a monthly limit?** Link creation returns `403`; existing links keep redirecting normally. Clicks past the cap stop being recorded individually but the rollup count still increments — your existing dashboards don't break.
+
+**Do limits prorate when I upgrade mid-month?** Yes. Upgrading lifts you to the new ceiling immediately, against the same calendar-month counter you've already accumulated.
+
+**Can I downgrade?** Yes, at any time. Existing links above the lower-tier link cap stay live; you just can't create new ones until next month or until you delete some.
+
+**Do you charge for retired/archived links?** No. Only active (non-archived, non-expired) links count toward `linksPerMonth`.
+
+**Where does free-tier auto-expiry kick in?** 60 days after a link's `createdAt`. The redirect handler then returns `410 Gone`. Upgrade to clear the stamp on every existing link the org owns.

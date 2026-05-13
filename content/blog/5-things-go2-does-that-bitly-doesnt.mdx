@@ -1,0 +1,204 @@
+---
+title: "5 Things Go2 Does That Bitly Doesn't"
+description: "Per-link retargeting pixels across 8 ad platforms. Custom domains free. Run-revocable links. An MCP server. CSV export with no paywall. The five capabilities that decide between staying on Bitly and not."
+date: "2026-04-08"
+author: "Go2 Team"
+authorBio: "The team behind Go2 — built by ex-Bitly users who got tired of waiting."
+authorImage: "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400&h=400&fit=crop&q=80"
+image: "https://images.unsplash.com/photo-1518770660439-4636190af475?w=1600&h=900&fit=crop&q=80"
+tags: ["features", "comparison", "platform"]
+---
+
+This isn't a "Go2 is better than Bitly" post. Bitly is a fine product for the job it was built for. It's twenty years old, it's been profitable for most of those years, and it works.
+
+But it was built before the things below were table-stakes. If any of these five capabilities are on your shortlist, you're going to outgrow Bitly. The question is just when.
+
+> **TL;DR:** the five are: per-link retargeting pixels across 8 platforms, free custom domains, run-revocable agent links, a 16-tool MCP server, and CSV export from day zero. None of them exist on Bitly's roadmap as far as we can tell. All five ship in Go2's free tier.
+
+![Platform capability concept](https://images.unsplash.com/photo-1518770660439-4636190af475?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## 1. Retargeting pixels on every link, on 8 platforms
+
+Bitly tracks clicks. It does not fire your Meta Pixel, your Google Ads conversion tag, or your TikTok Pixel when someone clicks. Which means: those audiences get built only when someone lands on *your* site, not when they click your link.
+
+For a paid-social funnel that's a real cost. The "people who clicked but bounced before the page loaded" segment is invisible to Bitly. With Go2 it's not.
+
+```bash
+# Add a Meta pixel to a link in one call
+curl -X PATCH https://api.go2.gg/api/v1/links/lnk_xyz \
+  -H "Authorization: Bearer $GO2_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "pixels": ["pix_meta_acme"] }'
+```
+
+Eight platforms supported on every paid tier (and most on Free):
+
+| Platform | Event fired |
+|---|---|
+| Meta (Facebook + Instagram) | `ViewContent` (configurable) |
+| Google Ads | Conversion event |
+| TikTok | `ClickButton` |
+| LinkedIn Insight | Custom conversion |
+| Twitter / X | `Tweet` |
+| Pinterest | `PageVisit` |
+| Reddit | `Custom` |
+| Snap | `PAGE_VIEW` |
+
+Pixels fire **server-side**, before the redirect. Means iOS 14 ATT users count. Means ad-blockers don't gut your audience-building. Means your CAC math improves.
+
+---
+
+## 2. Custom domains. Free.
+
+Bitly's Core plan starts at around $35/month and includes one custom domain. Go above that → enterprise pricing.
+
+Go2's Free plan includes one custom domain. Pro ($9/mo) includes five. Business ($49/mo) includes 25.
+
+```text
+Bitly:   1 custom domain costs $35/mo (Core)
+Go2:     1 custom domain on Free ($0/mo)
+         5 custom domains on Pro ($9/mo)
+        25 custom domains on Business ($49/mo)
+```
+
+This matters because the second your team or agency wants to brand a campaign URL — `links.acme.com/launch` — you've hit a Bitly paywall that buys you nothing else. With Go2 the domain is just included. The DNS setup is the same: two records, five-minute provisioning.
+
+![Custom domains and brand](https://images.unsplash.com/photo-1572177812156-58036aae439c?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## 3. Run-revocable links — kill an entire AI run's links in one call
+
+This one is for teams shipping AI agents.
+
+Suppose your support agent had a bad night — it shipped 47 links to customers with the wrong destination URL. Or your sales agent went off-script and emailed prospects with a stale promo. Or a research run cited 80 sources, three of which were hallucinated and now redirect to nowhere.
+
+On any traditional shortener you fix this by hand: pull a CSV, identify the bad links, click "delete" on each one. Forty-seven clicks. Or write a script.
+
+Go2 stores `agent_run_id` as a first-class column on every link. One API call kills them all:
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links/revoke-run \
+  -H "Authorization: Bearer $GO2_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "agentRunId": "run_2026_04_08_a4b8" }'
+```
+
+```json
+{
+  "data": {
+    "agentRunId": "run_2026_04_08_a4b8",
+    "linksRevoked": 47,
+    "linksThatHadClicks": 23,
+    "clickHistoryPreserved": true
+  }
+}
+```
+
+Revoked links return a `410 Gone` (or a custom branded "this link is no longer available" page). Click history is preserved — you still know who saw what before the revocation.
+
+Same pattern works on the MCP server (`revoke_run_links` tool), so your agent can revoke its own bad runs autonomously if you give it permission.
+
+---
+
+## 4. A 16-tool MCP server
+
+Bitly has an API. Go2 has an API *and* a Model Context Protocol server.
+
+The difference: Bitly's API requires you to write the integration code. Go2's MCP server gets installed once into Claude Code, Claude Desktop, Cursor, Windsurf, or Codex, and then your agent can use 16 link tools as native function calls.
+
+```bash
+claude mcp add go2 -- npx -y go2-mcp-server@latest \
+  --api-key "$GO2_API_KEY"
+```
+
+The 16 tools today:
+
+```text
+create_link              · bulk_create_links       · update_link
+delete_link              · get_link                · list_links
+create_revocable_link    · create_expiring_link    · revoke_run_links
+track_agent_link         · get_run_attribution     · list_agent_runs
+get_analytics            · export_analytics_csv    · create_qr_code
+add_pixel_to_link
+```
+
+For non-MCP integrations the same surface is exposed via REST, with TypeScript and Python SDKs. The MCP server is just the agent-friendly wrapper.
+
+We covered the deeper "why MCP" angle in [our MCP post](/blog/mcp-for-url-shorteners). The short version: agents that produce links should be able to mint, attribute, and revoke those links without a human in the loop. Bitly's API technically lets you do that. The MCP server makes it the default.
+
+---
+
+## 5. CSV export from day one — no paywall on your data
+
+Bitly's CSV export sits behind their paid tiers. Free users can see analytics in the dashboard but can't pull the raw data out.
+
+This is a small thing that's secretly a big thing. The moment you want to take your link analytics into your own warehouse, run a custom report, or feed click data into Looker / Metabase / whatever, you need raw access. Locking that behind a $35/month wall is one of those decisions that's revenue-positive in the short term and trust-negative in the long.
+
+Go2's stance: it's your data. Click **Export CSV** in the dashboard, or hit the API:
+
+```bash
+curl "https://api.go2.gg/api/v1/analytics/export?linkId=lnk_xyz&format=csv" \
+  -H "Authorization: Bearer $GO2_API_KEY" \
+  -o link-analytics.csv
+```
+
+```csv
+timestamp,short_url,country,device,browser,referrer,utm_source,utm_medium,utm_campaign,agent_run_id
+2026-04-08T14:22:01Z,links.acme.com/launch,US,desktop,Chrome,linkedin.com,linkedin,paid,launch-2026,
+2026-04-08T14:22:14Z,links.acme.com/launch,DE,mobile,Safari,direct,,,,
+2026-04-08T14:23:08Z,links.acme.com/launch,IN,mobile,Chrome,t.co,twitter,organic,launch-2026,run_a4b8
+```
+
+That column on the right — `agent_run_id` — is the one that doesn't exist anywhere else in the category. We've covered what it does in two earlier posts; this is what it looks like in the data.
+
+---
+
+## What this list deliberately leaves out
+
+A few things Go2 *also* has but that aren't on this list, because Bitly does have a version of them:
+
+- **Click analytics with geo/device/referrer breakdowns.** Bitly does this fine.
+- **Branded short URLs.** Bitly does this on Core+.
+- **API access.** Bitly's API is mature and reasonable.
+- **Bulk link creation.** Both work.
+- **Team accounts.** Both work.
+
+The five above are the *category-defining* gaps — the places where Bitly hasn't moved and Go2 ships them as the default. Everything else is parity work.
+
+---
+
+## When you should *not* switch
+
+Honest list:
+
+- **Your team has 10+ years of Bitly history and "bitly.com/…" muscle memory in your audience.** The migration is real work. If your CTR depends on the prefix, don't.
+- **You need an enterprise sales rep, MSA, and dedicated support contract today.** We're not at SOC 2 Type II. If your buyer needs that line item, Bitly or Rebrandly is the safer answer right now.
+- **You don't care about agent attribution, retargeting pixels, or CSV access.** If Bitly does what you need and you're paying happily, there's no reason to move.
+
+We'd rather you stay on Bitly and be happy than move to Go2 and be confused.
+
+---
+
+## When you should switch
+
+If any of these are on your roadmap:
+
+- Paid social retargeting from link clicks (Meta, Google, TikTok, LinkedIn) — see #1.
+- More than one custom domain, especially across clients — see #2.
+- Shipping links from AI agents — see #3 and #4.
+- Pulling click data into your own warehouse — see #5.
+
+…the math gets hard for Bitly fast. We've spent a fair amount of time talking to teams who are doing all five things by stitching Bitly + a custom tracker + a homemade pixel firer + a CSV scraper. That stack costs more in engineering hours than just switching.
+
+---
+
+## Try it
+
+- **[Start free — no credit card](/register)** — 100 links a month, 1 custom domain, all five capabilities.
+- **[Bitly migration guide](/migrate/bitly)** — bulk-import your existing Bitly links, keep the slugs, redirect old `bit.ly/...` to the new `links.yourbrand.com/...`.
+- **[See pricing](/pricing)** — Free, Pro $9/mo, Business $49/mo, Scale custom.
+
+If you're on the fence, drop us a note: `rr@roushan.xyz`. Tell us what you're shipping and we'll tell you honestly whether Go2 helps.

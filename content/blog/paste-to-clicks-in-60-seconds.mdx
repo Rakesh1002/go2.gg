@@ -1,0 +1,262 @@
+---
+title: "From Long URL to Click Insights in 60 Seconds: The Go2 Workflow"
+description: "A walk-through of the entire Go2 flow — paste a URL, brand it on your domain, attach a QR, fire a retargeting pixel, watch clicks land. With code for every step."
+date: "2026-04-15"
+author: "Go2 Team"
+authorBio: "The team building the agent-native short link platform."
+authorImage: "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400&h=400&fit=crop&q=80"
+image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1600&h=900&fit=crop&q=80"
+tags: ["tutorial", "workflow", "getting-started"]
+---
+
+The fastest way to understand a tool is to use it. This post is the entire Go2 workflow, end to end, in the order you'd actually do it. It takes about a minute the first time. After that it's about ten seconds per link.
+
+We'll cover:
+
+1. Add your domain (or skip and use `go2.gg`)
+2. Create your first branded short link
+3. Attach a QR code for offline use
+4. Fire a retargeting pixel on every click
+5. Watch the clicks roll in
+6. The same flow via REST API and MCP
+
+> **Goal:** by the end of this post you'll have a working `links.yourbrand.com/launch` URL with full analytics, a downloadable QR poster, and Meta Ads getting a "viewer" event for every click.
+
+![Workflow concept](https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## Step 1 — Add your domain (or use ours)
+
+You have two paths.
+
+**Path A: Use `go2.gg`.** Sign up for a free account; every link you create will live at `go2.gg/<slug>`. Free tier is 100 links/month, no credit card. Done in 30 seconds.
+
+**Path B: Use your own domain.** Open the dashboard → **Domains** → **Add domain**. Enter something like `links.acme.com`. Go2 gives you two DNS records:
+
+```text
+TYPE  HOST       VALUE                          TTL
+CNAME links      proxy.go2.gg                   3600
+TXT   _go2-verif="go2-verify=abc123"            3600
+```
+
+Drop them in your DNS provider (Cloudflare, Route53, Namecheap, whoever). Within ~5 minutes the domain verifies, an SSL cert provisions automatically, and you're shortening links on `links.acme.com/...`.
+
+**Free tier includes 1 custom domain.** Pro = 5, Business = 25.
+
+---
+
+## Step 2 — Create your first link
+
+In the dashboard:
+
+```
+Dashboard → Links → Create
+  Destination URL:  https://acme.com/landing/launch-2026
+  Domain:           links.acme.com
+  Slug:             launch          (optional — random if blank)
+  Title:            Spring Launch — Investor Pitch
+```
+
+That's the whole modal. Hit **Create**. You get back `links.acme.com/launch`, a copyable share button, and a live analytics card that's about to start ticking.
+
+If you want to do this from a script instead of the UI, the REST API is one line:
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer $GO2_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destinationUrl": "https://acme.com/landing/launch-2026",
+    "domain": "links.acme.com",
+    "slug": "launch",
+    "title": "Spring Launch — Investor Pitch"
+  }'
+```
+
+Response:
+
+```json
+{
+  "data": {
+    "id": "lnk_8sP1ZxQ",
+    "shortUrl": "https://links.acme.com/launch",
+    "destinationUrl": "https://acme.com/landing/launch-2026",
+    "slug": "launch",
+    "createdAt": "2026-04-15T14:22:01Z",
+    "qrCodeUrl": "https://api.go2.gg/api/v1/qr/lnk_8sP1ZxQ"
+  }
+}
+```
+
+The `qrCodeUrl` field is the bridge to the next step.
+
+---
+
+## Step 3 — Attach a branded QR code
+
+Every Go2 link auto-generates a QR. Hit the URL above and you get a 1024×1024 PNG with default styling. To brand it (logo in the middle, your accent color), open the link in the dashboard → **QR** tab.
+
+```
+Foreground:  #DC2626          ← your brand red
+Background:  #FFFFFF          ← white, transparent, or branded
+Logo:        upload acme-logo.svg
+Eye style:   rounded
+Output:      PNG / SVG / PDF (poster-ready)
+```
+
+For print campaigns we recommend the SVG export — it scales to billboard-size without pixelation.
+
+If you're scripting:
+
+```bash
+curl "https://api.go2.gg/api/v1/qr/lnk_8sP1ZxQ?fg=DC2626&logo=acme-logo&format=svg" \
+  -H "Authorization: Bearer $GO2_API_KEY" \
+  -o launch-qr.svg
+```
+
+![QR codes for offline campaigns](https://images.unsplash.com/photo-1622398925373-3f91b1e275f5?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## Step 4 — Fire a retargeting pixel on every click
+
+This is the step most teams forget. You shortened the URL. You shipped the QR. People are clicking. But Meta and Google don't know — those clicks aren't building you a retargeting audience.
+
+Go2 fires a pixel on the redirect. Eight platforms supported out of the box:
+
+| Platform | What you provide |
+|---|---|
+| Meta (Facebook + Instagram) | Pixel ID (e.g. `1234567890123456`) |
+| Google Ads | Conversion ID + label |
+| TikTok | Pixel ID |
+| LinkedIn Insight | Partner ID |
+| Twitter / X | Pixel ID + event ID |
+| Pinterest | Tag ID |
+| Reddit | Pixel ID |
+| Snap | Pixel ID |
+
+Add a pixel in the dashboard (**Settings → Pixels**), then attach it to the link:
+
+```bash
+curl -X PATCH https://api.go2.gg/api/v1/links/lnk_8sP1ZxQ \
+  -H "Authorization: Bearer $GO2_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pixels": ["pix_meta_acme", "pix_google_acme"]
+  }'
+```
+
+Now every click on `links.acme.com/launch` fires both pixels server-side. iOS 14 / ATT users included. Builds your audiences from real link traffic, no need to land on the destination page first.
+
+---
+
+## Step 5 — Watch clicks land
+
+The link page in the dashboard shows clicks rolling in within a few seconds of the first one. Real-time geo, device, browser, OS, referrer, UTM. Charts for last hour, last 24h, last 7d, last 30d.
+
+For programmatic access:
+
+```bash
+curl "https://api.go2.gg/api/v1/analytics?linkId=lnk_8sP1ZxQ&groupBy=country" \
+  -H "Authorization: Bearer $GO2_API_KEY"
+```
+
+```json
+{
+  "data": {
+    "totalClicks": 1247,
+    "uniqueVisitors": 982,
+    "byCountry": [
+      { "country": "US", "clicks": 612 },
+      { "country": "DE", "clicks": 187 },
+      { "country": "IN", "clicks": 124 },
+      { "country": "GB", "clicks": 98 }
+    ]
+  }
+}
+```
+
+CSV export from the dashboard is one click. No paywall.
+
+![Analytics dashboard concept](https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## Same flow, via MCP — for your AI agent
+
+Everything above works from your AI agent's tool list too. After installing the MCP server (see [our MCP post](/blog/mcp-for-url-shorteners)), your agent can do this:
+
+```ts
+// Inside an AI agent's reasoning loop (TypeScript)
+const link = await mcp.go2.create_link({
+  destinationUrl: "https://acme.com/landing/launch-2026",
+  domain: "links.acme.com",
+  slug: "launch",
+  title: "Spring Launch",
+  pixels: ["pix_meta_acme", "pix_google_acme"],
+  agentRunId: currentRun.id,
+});
+
+// link.shortUrl is `https://links.acme.com/launch`
+// every click on it carries `agent_run_id` for later attribution
+
+// Later: pull attribution
+const attribution = await mcp.go2.get_run_attribution({
+  agentRunId: currentRun.id,
+});
+
+console.log(attribution);
+// {
+//   totalLinks: 1,
+//   totalClicks: 47,
+//   pixelsFired: { meta: 47, google: 47 },
+//   byCountry: [...]
+// }
+```
+
+The flow is the same — paste a URL, brand it, attach a QR, fire a pixel, watch the clicks. The agent does it without you clicking through a UI.
+
+---
+
+## A 60-second mental model
+
+If you're trying to remember when to use what:
+
+```
+                     ┌──────────────────────────────┐
+                     │       Your Workspace          │
+                     │   (links.yourbrand.com/...)   │
+                     └──────────────┬───────────────┘
+                                    │
+        ┌───────────────────────────┼───────────────────────────┐
+        │                           │                           │
+   ┌────▼──────┐             ┌──────▼──────┐            ┌───────▼──────┐
+   │ Dashboard │             │  REST API   │            │  MCP server  │
+   │ (humans)  │             │  (servers)  │            │  (AI agents) │
+   └────┬──────┘             └──────┬──────┘            └───────┬──────┘
+        │                           │                           │
+        └───────────────────────────┼───────────────────────────┘
+                                    │
+                          ┌─────────▼──────────┐
+                          │ Sub-10ms edge      │
+                          │ redirect on every  │
+                          │ click. Pixels      │
+                          │ fire. Attribution  │
+                          │ recorded. Done.    │
+                          └────────────────────┘
+```
+
+Three surfaces, one workspace, one source of truth. Your team uses the dashboard. Your servers use the API. Your AI uses MCP. Same links, same analytics, same domain.
+
+---
+
+## Try it without signing up
+
+We have a paste-and-shorten demo on the homepage. Anonymous links last 24 hours; sign up free to keep them and unlock analytics. Or jump straight to the dashboard:
+
+- **[Start free — no credit card](/register)** — 100 links a month, 1 custom domain.
+- **[REST API quickstart](/developers/api)** — for the script kids.
+- **[MCP install guide](/agents/quickstart)** — for the agent kids.
+
+If you get stuck — domain not verifying, pixel not firing, analytics looking weird — there's a **#help** channel in our [Discord](/discord) and we generally answer within an hour.

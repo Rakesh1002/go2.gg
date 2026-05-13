@@ -1,0 +1,60 @@
+{
+  "name": "go2-mcp-server",
+  "version": "0.2.2",
+  "description": "MCP server for Go2 — short links your AI agent can call. Create branded URLs, track every click, query per-run agent attribution. Works in Claude Code, Claude Desktop, Cursor, Windsurf, Codex.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "go2-mcp": "./dist/cli.js",
+    "go2-mcp-server": "./dist/cli.js"
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.10",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "go2",
+    "ai-agents",
+    "agent-attribution",
+    "url-shortener",
+    "short-links",
+    "claude",
+    "cursor",
+    "codex",
+    "anthropic"
+  ],
+  "license": "AGPL-3.0-only",
+  "homepage": "https://go2.gg/agents",
+  "bugs": {
+    "url": "https://github.com/rakesh1002/go2.gg/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rakesh1002/go2.gg.git",
+    "directory": "app/packages/mcp-server"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

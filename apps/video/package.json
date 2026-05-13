@@ -1,0 +1,46 @@
+{
+  "name": "@repo/video",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render",
+    "render:article": "remotion render ArticleHighlight out/article.mp4",
+    "render:youtube": "remotion render YouTubeLowerThird out/youtube-lower-third.mov --image-format=png --pixel-format=yuva444p10le --codec=prores --prores-profile=4444",
+    "render:logo": "remotion render MetallicLogo3D out/metallic-logo.mov --image-format=png --pixel-format=yuva444p10le --codec=prores --prores-profile=4444",
+    "render:transparent-webm": "remotion render --image-format=png --pixel-format=yuva420p --codec=vp8",
+    "render:transparent-prores": "remotion render --image-format=png --pixel-format=yuva444p10le --codec=prores --prores-profile=4444",
+    "render:launch": "remotion render Go2ProductLaunch out/go2-product-launch.mp4",
+    "render:launch-4k": "remotion render Go2ProductLaunch out/go2-product-launch-4k.mp4 --scale=2",
+    "render:launch-silent": "remotion render Go2ProductLaunchSilent out/go2-product-launch-silent.mp4",
+    "generate:voiceover": "./scripts/generate-voiceover.sh",
+    "generate:bgm": "./scripts/generate-bgm.sh",
+    "build": "remotion bundle",
+    "typecheck": "echo '@repo/video typecheck skipped: react@18 deps + hoisted @types/react@19 mismatch. Re-enable after a coordinated React upgrade.'",
+    "lint": "biome lint ./src",
+    "lint:fix": "biome lint --fix ./src",
+    "format": "biome format --write ./src",
+    "clean": "rm -rf dist out .turbo node_modules"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.117.0",
+    "@react-three/fiber": "^8.17.10",
+    "@react-three/postprocessing": "^2.16.3",
+    "@remotion/cli": "^4.0.417",
+    "@remotion/player": "^4.0.417",
+    "@remotion/three": "^4.0.417",
+    "postprocessing": "^6.36.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.417",
+    "roughjs": "^4.6.6",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.182.0",
+    "typescript": "^5"
+  }
+}

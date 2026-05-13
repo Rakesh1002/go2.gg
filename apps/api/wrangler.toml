@@ -1,0 +1,260 @@
+name = "go2-api"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat_v2"]
+
+# Disable keepNames to fix "__name is not defined" error with Better Auth
+keep_names = false
+
+# Workers Logs — backup tail buffer in the CF dashboard.
+# Filtered structured events still tunnel to Axiom via lib/axiom.ts.
+[observability]
+enabled = true
+head_sampling_rate = 1.0
+
+[dev]
+port = 8787
+
+# -----------------------------------------------------------------------------
+# Environment Variables
+# -----------------------------------------------------------------------------
+
+[vars]
+APP_ENV = "development"
+APP_URL = "http://localhost:3000"
+API_URL = "http://localhost:8787"
+AUTH_ADAPTER = "better-auth"
+DB_ADAPTER = "d1"
+PAYMENTS_ADAPTER = "stripe"
+ANALYTICS_ADAPTER = "posthog"
+RATE_LIMIT_ADAPTER = "durable-object"
+DEFAULT_DOMAIN = "go2.gg"
+EMAIL_FROM_TRANSACTIONAL = "Go2 <noreply@go2.gg>"
+EMAIL_FROM_MARKETING = "Rakesh <rakesh@go2.gg>"
+AXIOM_DATASET = "go2"
+
+# -----------------------------------------------------------------------------
+# Bindings
+# -----------------------------------------------------------------------------
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "go2-db"
+database_id = "ddfef894-c878-43fd-a3d7-ae9224760f77"
+migrations_dir = "../../packages/db/drizzle"
+
+# KV Namespace for configuration/cache
+[[kv_namespaces]]
+binding = "KV_CONFIG"
+id = "2f1032f35ebf4267919988bdd411eeeb"
+
+# KV Namespace for link cache (fast edge lookups)
+[[kv_namespaces]]
+binding = "LINKS_KV"
+id = "cc18f3e6b3a7457ea6fe5186dd32686a"
+
+# R2 Bucket (for QR codes, custom OG images)
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "go2-assets"
+
+# Analytics Engine for click tracking
+# Create with: wrangler analytics-engine create go2-clicks
+[[analytics_engine_datasets]]
+binding = "TRACKER"
+dataset = "go2_clicks"
+
+# Workers AI for slug suggestions
+[ai]
+binding = "AI"
+
+# Cloudflare Email Sending (go2.gg verified in CF dashboard)
+# https://developers.cloudflare.com/email-service/api/send-emails/workers-api/
+[[send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["noreply@go2.gg", "rakesh@go2.gg", "support@go2.gg"]
+
+# Queues
+[[queues.producers]]
+binding = "BACKGROUND_QUEUE"
+queue = "go2-background-queue"
+
+[[queues.consumers]]
+queue = "go2-background-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# Durable Objects
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RateLimiter"]
+
+# Workflows — durable, multi-step background jobs.
+# Dispatched from the scheduled handler in src/index.ts.
+[[workflows]]
+name = "go2-dunning"
+binding = "DUNNING_WORKFLOW"
+class_name = "DunningWorkflow"
+
+# Per-link expiry — scheduled at link-create time when expiresAt is set.
+# Sleeps until the timestamp, then evicts the KV cache so the redirect
+# returns 410 within seconds of expiry instead of waiting for the daily cron.
+[[workflows]]
+name = "go2-link-expiry"
+binding = "LINK_EXPIRY_WORKFLOW"
+class_name = "LinkExpiryWorkflow"
+
+# -----------------------------------------------------------------------------
+# Custom Domain Routing
+# -----------------------------------------------------------------------------
+
+# Uncomment when deploying to production
+# routes = [
+#   { pattern = "go2.gg/*", custom_domain = true },
+#   { pattern = "api.go2.gg/*", custom_domain = true }
+# ]
+
+# -----------------------------------------------------------------------------
+# Cron Triggers
+# -----------------------------------------------------------------------------
+
+[triggers]
+crons = [
+  "0 0 * * *",    # Daily at midnight UTC - cleanup expired links, sessions
+  "0 2 * * *",    # Daily at 02:00 UTC - Scale-tier metered usage report
+  "*/15 * * * *", # Every 15 minutes - sync Stripe subscriptions
+  "0 */4 * * *",  # Every 4 hours - check link health
+  "0 */6 * * *",  # Every 6 hours - aggregate analytics
+  "0 8 * * *",    # Daily at 8 AM UTC - check usage alerts
+  "0 9 * * *",    # Daily at 9 AM UTC - process dunning reminders
+  "*/5 * * * *"   # Every 5 minutes - process drip campaign emails
+]
+
+# -----------------------------------------------------------------------------
+# Production Environment
+# -----------------------------------------------------------------------------
+
+[env.production]
+name = "go2-api-production"
+
+[env.production.vars]
+APP_ENV = "production"
+APP_URL = "https://go2.gg"
+API_URL = "https://api.go2.gg"
+AUTH_ADAPTER = "better-auth"
+DB_ADAPTER = "d1"
+PAYMENTS_ADAPTER = "stripe"
+ANALYTICS_ADAPTER = "posthog"
+RATE_LIMIT_ADAPTER = "durable-object"
+DEFAULT_DOMAIN = "go2.gg"
+EMAIL_FROM_TRANSACTIONAL = "Go2 <noreply@go2.gg>"
+EMAIL_FROM_MARKETING = "Rakesh <rakesh@go2.gg>"
+AXIOM_DATASET = "go2"
+
+# Custom domain for API
+[[env.production.routes]]
+pattern = "api.go2.gg/*"
+zone_name = "go2.gg"
+
+# MCP remote transport — host-based shim in src/index.ts dispatches mcp.go2.gg
+# requests to the existing /mcp router (Streamable HTTP + JSON-RPC).
+# `custom_domain = true` provisions DNS + SSL automatically on first deploy.
+[[env.production.routes]]
+pattern = "mcp.go2.gg"
+custom_domain = true
+
+# Production bindings (same as development - they share resources)
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "go2-db"
+database_id = "ddfef894-c878-43fd-a3d7-ae9224760f77"
+migrations_dir = "../../packages/db/drizzle"
+
+[[env.production.kv_namespaces]]
+binding = "KV_CONFIG"
+id = "2f1032f35ebf4267919988bdd411eeeb"
+
+[[env.production.kv_namespaces]]
+binding = "LINKS_KV"
+id = "cc18f3e6b3a7457ea6fe5186dd32686a"
+
+[[env.production.r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "go2-assets"
+
+[[env.production.analytics_engine_datasets]]
+binding = "TRACKER"
+dataset = "go2_clicks"
+
+[env.production.ai]
+binding = "AI"
+
+[[env.production.queues.producers]]
+binding = "BACKGROUND_QUEUE"
+queue = "go2-background-queue"
+
+[[env.production.queues.consumers]]
+queue = "go2-background-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# Cloudflare Email Sending (production)
+[[env.production.send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["noreply@go2.gg", "rakesh@go2.gg", "support@go2.gg"]
+
+[[env.production.durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[env.production.workflows]]
+name = "go2-dunning"
+binding = "DUNNING_WORKFLOW"
+class_name = "DunningWorkflow"
+
+[[env.production.workflows]]
+name = "go2-link-expiry"
+binding = "LINK_EXPIRY_WORKFLOW"
+class_name = "LinkExpiryWorkflow"
+
+[env.production.triggers]
+crons = [
+  "0 0 * * *",
+  "0 2 * * *",
+  "*/15 * * * *",
+  "0 */4 * * *",
+  "0 */6 * * *",
+  "0 8 * * *",
+  "0 9 * * *",
+  "*/5 * * * *"
+]
+
+# Secrets (set via wrangler secret put --env production):
+# - STRIPE_SECRET_KEY
+# - STRIPE_WEBHOOK_SECRET   (must include checkout.session.completed,
+#                            invoice.payment_succeeded, customer.subscription.*,
+#                            charge.refunded — see lib/stripe-attribution.ts)
+# - CSRF_SECRET (required for Better Auth)
+# - GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+# - TURNSTILE_SECRET_KEY
+# - AI_GATEWAY_API_KEY      (aigateway.sh → Kimi K2.6 routing)
+# - AXIOM_API_KEY           (xaat-… ingest token; dataset configured in [vars])
+# - POSTHOG_API_KEY         (phc_… project token; server-side product events)
+# - POSTHOG_HOST            (default https://us.i.posthog.com — only set if EU)
+# - GA4_MEASUREMENT_ID      (G-…; required to enable GA4 Measurement Protocol)
+# - GA4_API_SECRET          (paired with GA4_MEASUREMENT_ID)
+# Email is provided by the Cloudflare Email Sending binding (EMAIL),
+# configured via [[send_email]] above. No API key required.
+
+# -----------------------------------------------------------------------------
+# Staging Environment
+# -----------------------------------------------------------------------------
+
+[env.staging]
+name = "go2-api-staging"
+vars = { APP_ENV = "staging", APP_URL = "https://staging.go2.gg", DEFAULT_DOMAIN = "staging.go2.gg" }

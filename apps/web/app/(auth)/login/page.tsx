@@ -1,0 +1,28 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import { LoginForm } from "./login-form";
+
+export const metadata: Metadata = {
+  title: "Login",
+  description: "Sign in to your account",
+};
+
+export default function LoginPage() {
+  return (
+    <div className="w-full space-y-8">
+      <div className="space-y-2 text-center">
+        <h1 className="font-bold text-3xl text-foreground tracking-tight">Welcome back</h1>
+        <p className="text-muted-foreground">Sign in to your account to continue</p>
+      </div>
+
+      <LoginForm />
+
+      <p className="text-center text-muted-foreground text-sm">
+        Don&apos;t have an account?{" "}
+        <Link href="/register" className="font-medium text-primary hover:underline">
+          Sign up
+        </Link>
+      </p>
+    </div>
+  );
+}

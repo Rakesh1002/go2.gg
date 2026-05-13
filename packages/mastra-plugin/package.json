@@ -1,0 +1,49 @@
+{
+  "name": "go2-mastra",
+  "version": "0.1.0",
+  "description": "Mastra tools for Go2 — short links your AI agent can call. Mint tracked URLs, set expiry, query per-run agent attribution. Drops into any Mastra Agent in 5 lines.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "go2-sdk": "workspace:*",
+    "zod": "^3.23.0"
+  },
+  "peerDependencies": {
+    "@mastra/core": ">=0.10.0"
+  },
+  "devDependencies": {
+    "@mastra/core": "^1.28.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "go2",
+    "mastra",
+    "ai-agents",
+    "agent-attribution",
+    "short-links",
+    "url-shortener",
+    "mcp",
+    "agent-native"
+  ],
+  "homepage": "https://go2.gg/agents",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rakesh1002/go2.gg.git",
+    "directory": "packages/mastra-plugin"
+  },
+  "license": "AGPL-3.0-only"
+}

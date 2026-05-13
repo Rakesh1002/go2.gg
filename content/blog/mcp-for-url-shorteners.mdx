@@ -1,0 +1,242 @@
+---
+title: "MCP for URL Shorteners: Building the First Agent-Native Link Platform"
+description: "Why we made Go2 the first short-link platform with a Model Context Protocol server — what it unlocks, how to install it in 30 seconds, and why per-run attribution changes how you measure agent work."
+date: "2026-04-29"
+author: "Go2 Team"
+authorBio: "The team building link infrastructure for the AI agent era."
+authorImage: "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=400&h=400&fit=crop&q=80"
+image: "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=1600&h=900&fit=crop&q=80"
+tags: ["agents", "mcp", "engineering"]
+---
+
+A URL shortener feels like a strange place to think about AI agents. Then you watch one of them work for a day, and the gap snaps into focus.
+
+Most agents — research, support, sales, marketing — produce **links** as their final output. A research agent compiles a list of sources. A support bot sends you a help-center link. A sales agent emails a prospect with a tracked landing page. A marketing automation flow generates UTM-tagged URLs for a campaign.
+
+Where do those links go today? Almost always to the agent vendor's domain, in their dashboard, attributed to no one in particular. The link is the unit of work, and the agent has nowhere to put it.
+
+That gap is what Go2's MCP server is built to close.
+
+> **TL;DR**: Go2 is the first URL shortener with a Model Context Protocol server. Your AI agent can mint branded, tracked, revocable short links into your workspace — with per-run attribution baked into every click.
+
+![Agent architecture diagram concept](https://images.unsplash.com/photo-1620712943543-bcc4688e7485?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## What MCP is, in one minute
+
+The Model Context Protocol is Anthropic's open standard for giving AI assistants structured tool access. Claude Code, Claude Desktop, Cursor, Windsurf, Codex — they all speak it. An MCP server exposes a list of tools (with typed inputs and outputs); the agent picks them when relevant and calls them like functions.
+
+You can think of it as the keyboard for an agent. Without MCP, you're showing it your screen and hoping it reads correctly. With MCP, it's typing.
+
+Go2's MCP server exposes 16 tools — `create_link`, `bulk_create_links`, `update_link`, `revoke_run_links`, `get_analytics`, `get_run_attribution`, `list_agent_runs`, `track_agent_link`, and friends.
+
+---
+
+## The thirty-second install
+
+Pick your client.
+
+**Claude Code**
+
+```bash
+claude mcp add go2 -- npx -y go2-mcp-server@latest \
+  --api-key "$GO2_API_KEY"
+```
+
+**Claude Desktop** — drop this into `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "go2": {
+      "command": "npx",
+      "args": ["-y", "go2-mcp-server@latest"],
+      "env": {
+        "GO2_API_KEY": "go2_xxx",
+        "GO2_AGENT_ID": "claude-desktop"
+      }
+    }
+  }
+}
+```
+
+**Cursor** — `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "go2": {
+      "command": "npx",
+      "args": ["-y", "go2-mcp-server@latest"],
+      "env": { "GO2_API_KEY": "go2_xxx", "GO2_AGENT_ID": "cursor" }
+    }
+  }
+}
+```
+
+**Remote (any client that speaks Streamable HTTP)**
+
+```json
+{
+  "mcpServers": {
+    "go2": {
+      "url": "https://mcp.go2.gg/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
+
+That's it. Restart your client, and your agent now has a 16-tool link platform.
+
+---
+
+## Per-run attribution: the part that matters
+
+Every link Go2's MCP server creates is stamped with four fields:
+
+| Field | What it is |
+|---|---|
+| `agent_id` | Which agent (e.g. `claude-research-bot`) |
+| `agent_run_id` | Which specific run / conversation / session |
+| `actor_id` | The end user the agent was working on behalf of |
+| `tool_call_id` | The exact tool call inside the run that produced the link |
+
+When someone clicks one of those links, the click pipeline records all four fields alongside the usual geo / device / referrer / UTM. Which means: when a campaign converts, you can walk it backward.
+
+```
+Click → Link → Tool call → Run → Prompt → Agent → Owner workspace
+```
+
+You don't get "an agent did it." You get the prompt template, the run id, the tool invocation, the timestamp, and the conversion. The whole chain.
+
+![Per-run attribution flow](https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1600&h=900&fit=crop&q=80)
+
+This is the bit that doesn't exist anywhere else. Bit.ly's API lets you create a link. It doesn't let you say "this link belongs to run `abc123` of agent `support-bot-v2` on behalf of customer `c_99`." When the customer clicks, you can't ask Bit.ly to tell you which run produced the link.
+
+Go2 stores those fields as first-class columns. The MCP tool `get_run_attribution` lets your agent (or your dashboard) pull every click for a given run with one call.
+
+---
+
+## A real flow, end to end
+
+Suppose you're building a research agent. The user asks for "the top 5 papers on retrieval-augmented generation from the last six months." Your agent runs, finds the papers, and wants to send tracked links so you can see which papers people actually read.
+
+Without MCP, your agent writes raw URLs into the response. Click-through is measured by whichever tracker you wrote into your own infrastructure (or not at all).
+
+With Go2's MCP server, the agent does this instead:
+
+```ts
+// Inside your agent's planning step (TypeScript pseudocode)
+const links = await mcp.go2.bulk_create_links({
+  links: papers.map((p) => ({
+    destinationUrl: p.url,
+    title: p.title,
+  })),
+  agentRunId: currentRun.id,
+  toolCallId: thisToolCall.id,
+});
+
+// Hand back to the user
+return papers.map((p, i) =>
+  `[${p.title}](${links[i].shortUrl}) — ${p.authors}`
+);
+```
+
+The user reads the response, clicks two of five links. A week later, you ask:
+
+```ts
+const attribution = await mcp.go2.get_run_attribution({
+  agentRunId: currentRun.id,
+});
+
+// =>
+// {
+//   totalLinks: 5,
+//   totalClicks: 7,
+//   uniqueClickers: 1,
+//   linksByEngagement: [
+//     { shortUrl: "go2.gg/ab12", clicks: 4, paper: "RAG with..." },
+//     { shortUrl: "go2.gg/cd34", clicks: 3, paper: "Self-RAG..." },
+//     ...
+//   ],
+//   countries: { "US": 5, "DE": 2 },
+//   referrers: { "claude.ai": 7 }
+// }
+```
+
+That's not a possible API call against Bit.ly or Dub. It's the difference between "this agent exists and produces output" and "this agent's outputs are measurable."
+
+---
+
+## Use cases we keep seeing
+
+**Research agents** — Every output is a link bundle. Stamp each URL with the run ID; rewind any click to the run that produced it. Works for BrowserBase, Browserless, Cloudflare Browser Run pipelines.
+
+**AI support bots** — Track every help-center link the bot sends. When a deflection works (or doesn't), trace to the exact run, prompt, and tool call. Useful for Intercom Fin, Plain.com, custom Claude support workflows.
+
+**AI sales / outbound** — Links in agent-generated emails carry run attribution. Roll clicks back to the prompt template, not just the campaign. Plays well with Clay, Apollo, agentic outreach stacks.
+
+**Agent observability tools** — Pull `get_run_attribution` into your trace UI alongside spans, costs, and latency. Go2 is the data primitive; you're the dashboard. LangSmith, Helicone, Braintrust integrations are straightforward.
+
+---
+
+## What's revocable, what's not
+
+Two extra tools worth knowing about:
+
+**`create_revocable_link`** — Returns a link that can be killed in a single API call. Useful when an agent sends a one-time-use coupon, a personal access URL, or a draft that shouldn't outlive the session.
+
+**`revoke_run_links`** — Takes an `agent_run_id` and tombstones every link that run produced. The nuclear option. If a run goes sideways and shipped twenty bad URLs to a customer, you don't have to chase each link by hand.
+
+```bash
+# Hypothetical: a sales agent ran amok overnight. Kill its links.
+go2 mcp call revoke_run_links --agent-run-id run_2026_04_29_a4b8
+# => 32 links revoked. 14 had received clicks (data preserved).
+```
+
+Revocation tombstones the link (returns a 410 Gone, or a custom branded "this link is no longer available" page); it doesn't delete the click history. You still get attribution for the clicks that already happened.
+
+![Revocation control concept](https://images.unsplash.com/photo-1551434678-e076c223a692?w=1600&h=900&fit=crop&q=80)
+
+---
+
+## What this changes about your architecture
+
+The standard pattern for "agent that produces links" is to either:
+
+1. Embed your own analytics tracker in every URL (works, but you're now operating two systems).
+2. Trust the agent vendor's dashboard (works, but the data lives at the vendor, not you).
+3. Skip click tracking and hope (works, until you need the data).
+
+Go2's MCP server collapses the three into one: the agent's tool output IS a tracked link, attribution is automatic, and the data lives in your workspace from second one. You pay nothing extra for it. You don't run a tracker. You don't build a pipeline.
+
+The architecture trade you're making is: you depend on Go2 for the redirect path. In return, you get sub-10ms edge redirects, an open-source code path you can audit on GitHub, and the option to self-host on your own Cloudflare account if vendor risk is a worry.
+
+---
+
+## Limitations, honestly
+
+A few things the MCP server doesn't do yet, in case you're evaluating:
+
+- **Streaming attribution.** Click events flow into the warehouse on a 5-minute delay. Real-time push (webhooks per click) is on the roadmap.
+- **Cross-agent rollups.** You can pull attribution per `agent_run_id` and per `agent_id` today. Aggregating across agents (e.g. "show me click-through rate by tool template across every agent in our org") needs a join you do client-side.
+- **Per-tool-call cost telemetry.** We log the call but don't yet roll up token cost by run-attributed click. If you want a "cost per converting agent run" metric, you stitch it.
+
+We tell you what's missing because the people who care most about agent infrastructure are also the ones who notice missing primitives.
+
+---
+
+## Get started
+
+Drop the install snippet into your MCP client. Sign up for a Go2 workspace (free for 100 links a month — no credit card). Point your agent at it.
+
+Within five minutes you'll have your first run-attributed link. Within an hour you'll wonder why you ever shipped agent links any other way.
+
+- **[Quickstart guide](/agents/quickstart)** — the install + first link in five minutes.
+- **[MCP tool reference](/developers/mcp)** — every tool, every input, every output.
+- **[REST API docs](/developers/api)** — for non-MCP integrations.
+- **[GitHub](https://github.com/rakesh1002/go2.gg)** — every line of the redirect path, public.
+
+If you're building something agentic and the attribution gap is biting, get in touch. We're spending most of our time with agent platforms right now, and we're easy to find.

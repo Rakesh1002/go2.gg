@@ -1,0 +1,53 @@
+{
+  "name": "go2-sdk",
+  "version": "0.2.0",
+  "description": "Official TypeScript SDK for Go2 — short links your AI agent can call. Create branded URLs, track every click, query per-run agent attribution.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0"
+  },
+  "keywords": [
+    "go2",
+    "ai-agents",
+    "agent-attribution",
+    "mcp",
+    "claude",
+    "cursor",
+    "url-shortener",
+    "short-links",
+    "sdk",
+    "cloudflare-workers"
+  ],
+  "license": "AGPL-3.0-only",
+  "homepage": "https://go2.gg/agents",
+  "bugs": {
+    "url": "https://github.com/rakesh1002/go2.gg/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rakesh1002/go2.gg.git",
+    "directory": "app/packages/sdk"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}

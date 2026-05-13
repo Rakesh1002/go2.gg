@@ -1,0 +1,25 @@
+<svg width="800" height="600" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="600" fill="white"/>
+  <text x="50" y="60" font-family="Georgia, serif" font-size="32" font-weight="bold" fill="#1a1a1a">Breaking News</text>
+  <line x1="50" y1="75" x2="750" y2="75" stroke="#e0e0e0" stroke-width="1"/>
+  
+  <text x="50" y="130" font-family="Georgia, serif" font-size="28" font-weight="bold" fill="#1a1a1a">Congress Averts government shutdown</text>
+  <text x="50" y="165" font-family="Georgia, serif" font-size="28" font-weight="bold" fill="#1a1a1a">as funding lapses Deadline Looms</text>
+  
+  <text x="50" y="210" font-family="Arial, sans-serif" font-size="14" fill="#666">Published: January 31, 2026 | Politics</text>
+  
+  <rect x="50" y="240" width="700" height="180" fill="#f5f5f5" rx="4"/>
+  
+  <text x="70" y="280" font-family="Arial, sans-serif" font-size="16" fill="#333">WASHINGTON  Lawmakers reached a last-minute deal late Friday to</text>
+  <text x="70" y="305" font-family="Arial, sans-serif" font-size="16" fill="#333">prevent a partial government shutdown, passing a continuing resolution</text>
+  <text x="70" y="330" font-family="Arial, sans-serif" font-size="16" fill="#333">that extends funding through March 15. The bipartisan agreement came</text>
+  <text x="70" y="355" font-family="Arial, sans-serif" font-size="16" fill="#333">just hours before funding lapses would have triggered the closure of</text>
+  <text x="70" y="380" font-family="Arial, sans-serif" font-size="16" fill="#333">federal agencies and furloughs for hundreds of thousands of workers.</text>
+  <text x="70" y="405" font-family="Arial, sans-serif" font-size="16" fill="#333">The bill now heads to the President's desk for signature.</text>
+  
+  <text x="50" y="460" font-family="Arial, sans-serif" font-size="16" fill="#333">The deal includes provisions for disaster relief funding and extends</text>
+  <text x="50" y="485" font-family="Arial, sans-serif" font-size="16" fill="#333">several key programs that were set to expire. Both parties claimed</text>
+  <text x="50" y="510" font-family="Arial, sans-serif" font-size="16" fill="#333">victory in avoiding the disruption that a shutdown would have caused.</text>
+  
+  <text x="50" y="560" font-family="Arial, sans-serif" font-size="12" fill="#999">© 2026 News Network. All rights reserved.</text>
+</svg>
