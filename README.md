@@ -4,20 +4,145 @@
 [![Built on Cloudflare](https://img.shields.io/badge/built%20on-Cloudflare%20Workers-F38020.svg)](https://workers.cloudflare.com/)
 [![Trust & Safety](https://img.shields.io/badge/abuse-go2.gg%2Freport--abuse-red.svg)](https://go2.gg/report-abuse)
 
-Go2 is an open-source URL shortener built for the edge — sub-10ms global
-redirects, comprehensive analytics, brand-typosquat + phishing defence
-baked in, and a first-class story for AI agents creating and tracking
-links.
+**Branded short links your team controls — and an MCP server your AI agent can use.**
+Sub-10ms global redirects, phishing-resistant by default, attribution that
+tracks every click back to the human *or* the agent that created the link.
 
-- **Hosted SaaS:** [https://go2.gg](https://go2.gg) — free tier + Pro/Business plans
-- **Self-host:** see [`SELF_HOSTING.md`](./SELF_HOSTING.md) — full feature parity, your Cloudflare account
-- **Source:** AGPL-3.0 (see [`LICENSE`](./LICENSE) + [`LICENSE.md`](./LICENSE.md))
-- **API docs:** [https://api.go2.gg/openapi.json](https://api.go2.gg/openapi.json)
-- **Agents guide:** [`/AGENTS.md`](https://go2.gg/AGENTS.md) · [`/llms.txt`](https://go2.gg/llms.txt) · [`/.well-known/agent-card.json`](https://go2.gg/.well-known/agent-card.json)
-- **Report abuse:** [https://go2.gg/report-abuse](https://go2.gg/report-abuse) · abuse@go2.gg (24h SLA)
-- **Security vulnerability:** security@go2.gg (see [`SECURITY.md`](./SECURITY.md))
+[**Try go2.gg free →**](https://go2.gg/register) &nbsp; [**Install MCP server →**](https://go2.gg/agents) &nbsp; [**Read the docs →**](https://go2.gg/docs)
 
-## Quick start (local development)
+---
+
+## Built for three audiences
+
+**Marketers & growth teams.** Branded short links on your own domain.
+Click analytics by country, device, and referrer. UTM builder, retargeting
+pixels (Facebook / Google / TikTok / LinkedIn / Pinterest / GA4), A/B
+testing, conversion tracking with revenue attribution — without the bit.ly
+tax.
+
+**Developers.** A REST API and typed SDK that don't require an account
+just to try. Anonymous "guest" links work in one curl call. Full OpenAPI
+3.1 spec at [/openapi.json](https://go2.gg/openapi.json). Custom domains
+with auto-SSL via Cloudflare. Webhooks for every event you care about.
+
+**AI agents — first-class.** Native MCP server at `mcp.go2.gg`. Every
+link can be stamped with `agentId` / `agentRunId`, and clicks are joined
+back so you can answer *"how many sales did Claude Code's links produce?"*
+Agent-readable surfaces at [`/AGENTS.md`](https://go2.gg/AGENTS.md),
+[`/llms.txt`](https://go2.gg/llms.txt),
+[`/.well-known/agent-card.json`](https://go2.gg/.well-known/agent-card.json),
+[`/.well-known/mcp.json`](https://go2.gg/.well-known/mcp.json).
+
+---
+
+## Why Go2
+
+- **Agent-native.** First shortener where AI agents are a first-class actor — MCP server, per-agent attribution, run rollups in the dashboard.
+- **Phishing-resistant.** Every destination is checked through Google Safe Browsing + Cloudflare URL Scanner *before* the link is created; typosquats of QuickBooks, PayPal, Coinbase, Microsoft, and 40+ other brands are blocked at slug-time.
+- **Sub-10ms global.** Runs on Cloudflare Workers — redirects served from the nearest of 300+ edge cities, no cold starts.
+- **Open source, AGPL-3.0.** Every prod commit mirrors to this public repo within 30 seconds. Use the hosted version at [go2.gg](https://go2.gg) or self-host on your own Cloudflare account.
+
+---
+
+## How it works
+
+**1. Add your domain (or use go2.gg).** Point a single DNS record at
+Cloudflare and your branded short links are live with auto-SSL. Or skip
+it and use `go2.gg/...` — anonymous and account-bound links work out of
+the box.
+
+**2. Create links — anywhere.** From the dashboard, the REST API, or
+your AI agent via MCP. Add custom slugs, QR codes, retargeting pixels,
+password protection, and A/B variants per link.
+
+**3. See every click.** Real-time analytics — geo, device, browser,
+referrer, UTM. Export to CSV. Your data, your dashboard, no paywall on
+your own traffic.
+
+---
+
+## Show me
+
+**Create a link via API:**
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/links \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "destinationUrl": "https://example.com/launch",
+    "slug": "launch-2026",
+    "tags": ["marketing"]
+  }'
+```
+
+**Wire up an AI agent via MCP (Claude Code, Cursor, etc.):**
+
+```bash
+claude mcp add go2 --transport http https://mcp.go2.gg
+# Your agent now has create_link, get_stats, list_agent_runs, …
+```
+
+**No account? One-line guest link with 24h expiry:**
+
+```bash
+curl -X POST https://api.go2.gg/api/v1/public/links \
+  -H "Content-Type: application/json" \
+  -d '{"destinationUrl": "https://example.com"}'
+# → { "shortUrl": "https://go2.gg/wq3F2", "expiresAt": "...", "claimable": true }
+```
+
+Full reference: [**go2.gg/docs**](https://go2.gg/docs).
+
+---
+
+## Trust & safety
+
+Your visitors won't see phishing or malware on your domain. Three layers
+of defence run on every link create, every update, and on a rolling
+4-hour rescan:
+
+- **Google Safe Browsing v4** — destinations are checked against malware, social engineering, and unwanted-software lists before the link is created.
+- **Cloudflare URL Scanner v2** — second-layer phishing classifier; catches what Safe Browsing hasn't seen yet.
+- **Brand-typosquat slug guard** — rejects Unicode-homoglyph + Levenshtein-near matches of 40+ brand names unless the destination is the brand's verified domain.
+
+Disabled links return `HTTP 410 Gone` with an explanation page, never
+auto-follow. Every redirect carries `X-Robots-Tag: noindex` so Google
+never indexes a slug path. Anyone can report a bad link at
+[**go2.gg/report-abuse**](https://go2.gg/report-abuse) — reviewed within
+24 hours.
+
+Full policy in [SECURITY.md](./SECURITY.md). Security vulnerabilities
+go to **security@go2.gg**; abusive content reports to **abuse@go2.gg**.
+
+---
+
+## Pricing
+
+Free for 100 links a month, no credit card. Pro ($9/mo) unlocks custom
+domains, more retention, and Pro features. Business ($49/mo) adds team
+seats, SSO, A/B testing, and conversion attribution. Full breakdown at
+[**go2.gg/pricing**](https://go2.gg/pricing).
+
+---
+
+## Self-host
+
+Want to run Go2 on your own Cloudflare account? Full feature parity, your
+data stays on your infrastructure, AGPL-3.0 license. Step-by-step in
+[**SELF_HOSTING.md**](./SELF_HOSTING.md) — typical setup is 30 minutes
+including DNS.
+
+---
+
+## For contributors
+
+We welcome contributions. Start with [CONTRIBUTING.md](./CONTRIBUTING.md)
+and read the [Code of Conduct](./CODE_OF_CONDUCT.md) and
+[Governance](./GOVERNANCE.md).
+
+<details>
+<summary><b>Local development quick start</b></summary>
 
 ```bash
 pnpm install
@@ -28,118 +153,10 @@ pnpm dev
 # Web → http://localhost:3000
 # API → http://localhost:8787
 ```
+</details>
 
-For deploying to your own Cloudflare account, see
-[`SELF_HOSTING.md`](./SELF_HOSTING.md).
-
-## Trust & Safety
-
-URL shorteners are routinely abused as redirect hosts for phishing,
-malware, and brand impersonation — a single abusive slug can get the
-entire domain demoted in Google Search and flagged in Chrome's Safe
-Browsing warnings. Go2 ships a three-layer defence enabled by default:
-
-1. **Google Safe Browsing v4** pre-flight on every destination URL at create + update time
-2. **Cloudflare URL Scanner v2** second-layer phishing classifier
-3. **Brand-typosquat slug guard** — Levenshtein + Unicode-homoglyph normalization against a 40+ brand allowlist (QuickBooks, PayPal, Microsoft, Apple, Google, Meta, Chase, Coinbase, Stripe, Paytm, PhonePe, …)
-
-Plus runtime guarantees:
-
-- Every redirect carries `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet` so Google never indexes a `/<slug>` path
-- `robots.txt` explicit-allowlists marketing + docs paths only
-- Disabled slugs return `HTTP 410 Gone` with a clear explanation page
-- Daily 4-hour rescan catches "cloaking" attacks where the destination goes live after the link is created
-- Public [`/report-abuse`](https://go2.gg/report-abuse) endpoint with Turnstile + per-IP rate-limit; reports prioritise the link in the next rescan and route to `abuse@go2.gg`
-
-See [`SECURITY.md`](./SECURITY.md) for the full policy and reporting channels.
-
-## Features
-
-### Core (all plans)
-
-| Feature | Description |
-|---|---|
-| **Short links** | Custom or AI-generated memorable slugs |
-| **Custom domains** | BYO domain with auto-SSL via Cloudflare |
-| **QR codes** | Dynamic codes with custom colors + logos |
-| **Analytics** | Country, device, browser, referrer, UTM, time-series |
-| **Tags + folders** | Organize at scale |
-| **REST API** | Full CRUD + OpenAPI 3.1 spec |
-| **MCP server** | Native Model Context Protocol endpoint for AI agents |
-| **UTM builder** | Auto-append + parse UTM parameters |
-
-### Pro ($9/mo)
-
-Password protection · link expiration · click limits · link cloaking ·
-geo + device targeting · iOS/Android deep links · retargeting pixels
-(Facebook/Google/TikTok/LinkedIn/Pinterest/GA4) · webhooks · Link-in-bio.
-
-### Business ($49/mo)
-
-A/B testing · conversion tracking with revenue attribution · team members
-with role-based access · real-time analytics · advanced folder
-permissions · SSO (SAML / OIDC) · audit logging · white-label / reseller
-program.
-
-Full pricing + per-tier limits: [https://go2.gg/pricing](https://go2.gg/pricing)
-
-## Agentic features
-
-Go2 is built so AI agents (Claude Code, Cursor, ChatGPT, custom) can
-create + track links as first-class actors:
-
-- **`/.well-known/agent-card.json`** — A2A protocol agent discovery
-- **`/.well-known/mcp.json`** — Model Context Protocol manifest
-- **`mcp.go2.gg`** — Streamable-HTTP MCP server endpoint
-- **`/AGENTS.md`** — agent-readable guide to the API surface
-- **`/llms.txt`** + **`/llms-full.txt`** — LLM-optimised site index
-- **Agent attribution** — every link can be stamped with `agentId` /
-  `agentRunId` / `agentActorId`; clicks are joined back so you can answer
-  "how many sales did Claude Code's links produce?"
-- **First-class agent runs table** — links + clicks rolled up to a
-  per-run view in the dashboard and MCP `list_agent_runs` tool
-- **AI-generated slugs** — opt-in memorable slugs derived from the
-  destination's content via Workers AI
-
-## API at a glance
-
-Full reference: [https://api.go2.gg/openapi.json](https://api.go2.gg/openapi.json)
-(or hit `https://api.go2.gg/developers/api` for the rendered HTML).
-
-```bash
-# Create a link (requires API key from Dashboard → API Keys)
-curl -X POST https://api.go2.gg/api/v1/links \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "destinationUrl": "https://example.com",
-    "slug": "my-link",
-    "tags": ["marketing"],
-    "agentId": "claude-code",
-    "agentRunId": "run_abc123"
-  }'
-
-# Anonymous (guest) link — no auth, 24h expiry, claim after signup
-curl -X POST https://api.go2.gg/api/v1/public/links \
-  -H "Content-Type: application/json" \
-  -d '{"destinationUrl": "https://example.com"}'
-
-# Report an abusive link
-curl -X POST https://api.go2.gg/api/v1/abuse \
-  -H "Content-Type: application/json" \
-  -d '{
-    "shortUrl": "https://go2.gg/suspicious-slug",
-    "reason": "phishing",
-    "notes": "impersonates a bank login",
-    "turnstileToken": "..."
-  }'
-```
-
-Auth, links CRUD, analytics, A/B tests, conversions, folders, webhooks,
-pixels, QR codes, bulk import/export, claim flows, abuse reports, MCP,
-admin — all documented in the OpenAPI spec.
-
-## Architecture
+<details>
+<summary><b>Architecture</b></summary>
 
 ```
 apps/
@@ -149,55 +166,43 @@ apps/
 └── video/              # Remotion-based video assets
 
 packages/
-├── ai/                 # AI provider abstraction (Workers AI + aigateway.sh)
-├── analytics/          # PostHog + GA4 server-side wrappers
+├── ai/                 # AI provider abstraction
+├── analytics/          # PostHog + GA4 server-side
 ├── auth/               # Better Auth config (OAuth + magic-link + OTP)
-├── cli/                # Go2 CLI for power users
+├── cli/                # Go2 CLI
 ├── config/             # Shared site / pricing / feature config
 ├── db/                 # Drizzle ORM + D1 adapter
 ├── email/              # React Email templates
-├── logger/             # Axiom + Workers Logs adapter
+├── logger/             # Axiom + Workers Logs
 ├── mastra-plugin/      # Mastra agent toolkit plugin
 ├── mcp-server/         # MCP server implementation
 ├── payments/           # Stripe adapter
-├── sdk/                # JavaScript SDK (typed client)
-└── ui/                 # Shared UI primitives (shadcn/ui)
+├── sdk/                # Typed JavaScript SDK
+└── ui/                 # Shadcn/ui primitives
 ```
 
-**Storage:** Cloudflare D1 (SQLite) for primary, KV for edge link cache,
-R2 for QR codes + uploads, Analytics Engine for click events, Queues for
-background jobs (email, webhooks), Durable Objects for rate-limiting +
-A/B test state.
+**Storage:** Cloudflare D1 (SQLite) for primary, KV for the edge link
+cache, R2 for QR codes and uploads, Analytics Engine for click events,
+Queues for background jobs, Durable Objects for rate-limiting and A/B
+test state.
 
-## Deployment
+**Stack:** Hono, Next.js (App Router on Workers via OpenNext), Drizzle
+ORM, Better Auth, React Email, Stripe.
+</details>
 
-```bash
-# API
-cd apps/api && wrangler deploy --env production
-
-# Web (Next.js → OpenNext → Workers)
-cd apps/web && pnpm run deploy
-```
-
-Full deployment guide including secrets, custom domains, and database
-migrations: [`SELF_HOSTING.md`](./SELF_HOSTING.md).
-
-## Contributing
-
-We welcome contributions. Start with [`CONTRIBUTING.md`](./CONTRIBUTING.md)
-and please read [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) +
-[`GOVERNANCE.md`](./GOVERNANCE.md).
+---
 
 ## License
 
-[GNU AGPL v3.0](./LICENSE). The full text is in [`LICENSE`](./LICENSE)
-and a human-readable explanation lives in [`LICENSE.md`](./LICENSE.md).
+[GNU AGPL v3.0](./LICENSE). Plain-English summary in
+[LICENSE.md](./LICENSE.md).
 
-> AGPL §13 note: when running Go2 as a network service, you must offer
-> users access to the source code. The hosted version at go2.gg satisfies
-> this by linking the source from the footer + this repo; self-hosters
-> should do the same.
+> **AGPL §13 note.** When you run Go2 as a network service, you must
+> offer your users access to your modified source. The hosted version
+> at [go2.gg](https://go2.gg) links this repo from the footer;
+> self-hosters should do the same.
 
 ---
 
 Built on Cloudflare Workers, Hono, Next.js, Drizzle, and Better Auth.
+Made with care by [@Rakesh1002](https://github.com/Rakesh1002).
