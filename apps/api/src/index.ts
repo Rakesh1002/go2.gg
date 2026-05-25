@@ -72,6 +72,9 @@ import { logEvent as logToAxiom } from "./lib/axiom.js";
 // Link cloaking
 import { generateCloakedPage } from "./lib/cloaked-page.js";
 
+// Safety interstitial + disabled-link page
+import { renderDisabledPage, renderInterstitial } from "./lib/safety-pages.js";
+
 // OpenAPI spec
 import { getOpenApiSpec } from "./lib/openapi-spec.js";
 
@@ -227,6 +230,12 @@ app.get("/:slug", async (c, next) => {
     return next();
   }
 
+  // Every short-link response is noindex/nofollow. Google should NEVER index
+  // a /<slug> path on go2.gg — that's how Safe Browsing finds them and flags
+  // the shortener for whatever phishing destination an abuser pointed at.
+  c.header("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+  c.header("Referrer-Policy", "no-referrer");
+
   // Determine domain from request
   const host = c.req.header("host") ?? c.env.DEFAULT_DOMAIN ?? "go2.gg";
   const domain = host.split(":")[0]; // Remove port if present
@@ -266,6 +275,20 @@ app.get("/:slug", async (c, next) => {
   // this defense-in-depth check catches stale cache entries.
   if (link.isArchived) {
     return c.json({ error: "This link is no longer available" }, { status: 410 });
+  }
+
+  // Disabled-for-safety: link was flagged by Safe Browsing, URL Scanner, an
+  // abuse report review, or an admin. We return 410 Gone and surface the
+  // reason — never proxy a flagged destination. The link record stays in
+  // D1 so abuse reviews have a paper trail.
+  if (link.isDisabled) {
+    return c.html(
+      renderDisabledPage({
+        shortUrl: `https://${link.domain}/${link.slug}`,
+        reason: link.disabledReason ?? "This link has been disabled for safety reasons.",
+      }),
+      { status: 410 },
+    );
   }
 
   // Check if link has expired (user-set or policy-driven).
@@ -690,6 +713,40 @@ app.get("/:slug", async (c, next) => {
     return c.html(cloakedPage);
   }
 
+  // Safety interstitial — preview-and-confirm step. Three independent gates;
+  // any one of them fires the interstitial. NO query-string bypass — the
+  // prior `?go2_confirmed=1` shortcut let phishers craft URLs that skipped
+  // the preview entirely. Continue is always a deliberate human click.
+  //
+  //   1. threatStatus is "unknown" — neither scanner could verify the
+  //      destination; force the human to make the call.
+  //   2. link is < 1h old AND threatStatus is not "clean" — short window
+  //      where create-time check might be stale; once rescan upgrades to
+  //      "clean", normal redirect resumes.
+  //   3. link is a guest link AND threatStatus is not "clean" — anonymous
+  //      creates are higher abuse-risk; lose the gate as soon as the daily
+  //      rescan confirms clean.
+  //
+  // Crawlers / preview bots get the interstitial (noindex), so the
+  // destination URL is never indexed via go2.gg's path even if a slug leaks.
+  const ageMs = link.createdAt ? Date.now() - new Date(link.createdAt).getTime() : Infinity;
+  const isNewLink = ageMs < 60 * 60 * 1000;
+  const isGuest = link.userId == null;
+  const isUnverified = link.threatStatus !== "clean";
+  const showInterstitial = isUnverified && (isNewLink || isGuest || link.threatStatus === "unknown");
+
+  if (showInterstitial) {
+    return c.html(
+      renderInterstitial({
+        shortUrl: `https://${link.domain}/${link.slug}`,
+        // Show the un-altered destination, not the go2_ref-stamped one. We
+        // don't want to leak click IDs on the preview screen.
+        destination: baseDestination,
+        reason: link.threatStatus === "unknown" ? "unknown_threat" : "new_link",
+      }),
+    );
+  }
+
   // Return 301 permanent redirect (no pixels, no cloaking)
   return c.redirect(destination, 301);
 });
@@ -989,6 +1046,10 @@ export default {
             } catch (error) {
               console.error("Failed to apply retention policy:", error);
             }
+
+            // Threat rescan moved to the every-4h trigger below — it shares
+            // the cadence with link-health and runs 6x/day instead of 1x to
+            // shrink the window between phishing-going-live and disable.
           })()
         );
         break;
@@ -1098,6 +1159,21 @@ export default {
 
                 // Small delay between checks to avoid overwhelming targets
                 await new Promise((r) => setTimeout(r, 100));
+              }
+
+              // Threat rescan (Safe Browsing + URL Scanner) — every 4h.
+              // Catches the cloaking-after-create attack pattern where the
+              // destination page goes live AFTER the link was created clean.
+              try {
+                const { rescanLinkBatch } = await import("./lib/threat-rescan.js");
+                const result = await rescanLinkBatch(env, db);
+                if (result.flagged > 0 || result.bailedOnBudget) {
+                  console.log(
+                    `[cron] threat rescan: scanned=${result.scanned} flagged=${result.flagged} notified=${result.notified} bailedOnBudget=${result.bailedOnBudget}`,
+                  );
+                }
+              } catch (error) {
+                console.error("Failed to run threat rescan:", error);
               }
 
               // Send notifications for newly broken links

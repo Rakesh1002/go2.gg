@@ -248,6 +248,11 @@ crons = [
 # - POSTHOG_HOST            (default https://us.i.posthog.com — only set if EU)
 # - GA4_MEASUREMENT_ID      (G-…; required to enable GA4 Measurement Protocol)
 # - GA4_API_SECRET          (paired with GA4_MEASUREMENT_ID)
+# - GOOGLE_SAFE_BROWSING_API_KEY  (v4 Lookup API; create at
+#                            https://console.cloud.google.com/apis/api/safebrowsing.googleapis.com
+#                            then restrict the key to safebrowsing.googleapis.com)
+# - CLOUDFLARE_ACCOUNT_ID         (URL Scanner v2 — find on the CF dashboard)
+# - CLOUDFLARE_URLSCANNER_TOKEN   (API token with "URL Scanner:Read" scope)
 # Email is provided by the Cloudflare Email Sending binding (EMAIL),
 # configured via [[send_email]] above. No API key required.
 

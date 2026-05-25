@@ -37,6 +37,11 @@ export { DripCustomDomainEmail } from "./templates/drip-custom-domain.js";
 export { DripReengagementEmail } from "./templates/drip-reengagement.js";
 export { DripUpgradeEmail } from "./templates/drip-upgrade.js";
 
+// Trust & safety
+export { LinkDisabledForSafetyEmail } from "./templates/link-disabled-for-safety.js";
+export { AbuseReportEmail } from "./templates/abuse-report.js";
+export { PhishingWarningEmail } from "./templates/phishing-warning.js";
+
 // Components
 export { EmailLayout } from "./components/layout.js";
 

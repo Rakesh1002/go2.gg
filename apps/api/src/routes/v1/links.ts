@@ -18,6 +18,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { CachedLink, Env } from "../../bindings.js";
 import { generateSingleAISlug } from "../../lib/ai-slug.js";
+import { checkFolderAccess, refreshFolderLinkCounts } from "../../lib/folders.js";
+import { captureEvent } from "../../lib/product-analytics.js";
 import {
   badRequest,
   conflict,
@@ -28,11 +30,11 @@ import {
   ok,
   paymentRequired,
 } from "../../lib/response.js";
-import { checkFolderAccess, refreshFolderLinkCounts } from "../../lib/folders.js";
 import { computePolicyExpiresAt, getPlanForOrg } from "../../lib/retention.js";
+import { checkDestinationThreat, shouldBlockOnCreate } from "../../lib/safe-browsing.js";
+import { checkSlugAbuse } from "../../lib/slug-abuse.js";
 import { generateSlug, isReservedSlug } from "../../lib/slug.js";
 import { checkLinkLimit, getOrgUsage } from "../../lib/usage.js";
-import { captureEvent } from "../../lib/product-analytics.js";
 import { dispatchWebhookEvent } from "../../lib/webhook-dispatcher.js";
 import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
 
@@ -166,8 +168,7 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
   // Plan-gate retargeting pixels (Pro+). The dashboard already hides the UI
   // for Free, but a hand-rolled API call would otherwise bypass.
   const wantsPixels =
-    (input.trackingPixels && input.trackingPixels.length > 0) ||
-    input.enablePixelTracking === true;
+    (input.trackingPixels && input.trackingPixels.length > 0) || input.enablePixelTracking === true;
   if (wantsPixels) {
     const plan = await getPlanForOrg(db, user.organizationId);
     if (plan === "free") {
@@ -214,6 +215,28 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
   // Check if slug is reserved
   if (isReservedSlug(slug)) {
     return badRequest(c, "This slug is reserved");
+  }
+
+  // Brand-typosquat / phishing-keyword guard. Only applies to user-chosen
+  // slugs — AI/random slugs come from a deterministic alphabet that can't
+  // collide with brand names. This stops the "go2.gg/Quuicckbook" class of
+  // GSC-trigger before it ever reaches D1.
+  if (input.slug) {
+    const abuseCheck = checkSlugAbuse(input.slug, input.destinationUrl);
+    if (abuseCheck.blocked) {
+      return badRequest(c, abuseCheck.reason ?? "This slug is not allowed");
+    }
+  }
+
+  // Destination threat pre-flight (Google Safe Browsing + Cloudflare URL
+  // Scanner). Best-effort: on "unknown" we let the link through and rely on
+  // the daily rescan cron. Only an active "flagged" verdict blocks.
+  const threatVerdict = await checkDestinationThreat(c.env, input.destinationUrl);
+  if (shouldBlockOnCreate(threatVerdict)) {
+    return badRequest(
+      c,
+      "This destination is flagged as malicious by Google Safe Browsing or Cloudflare URL Scanner. We can't shorten it."
+    );
   }
 
   // Check if slug already exists for this domain
@@ -292,6 +315,11 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
     agentRunId: input.agentRunId,
     agentActorId: input.agentActorId,
     agentMetadata: input.agentMetadata ? JSON.stringify(input.agentMetadata) : null,
+    // Persist the pre-flight threat verdict so the rescan cron can skip
+    // freshly-checked links for the first 24h.
+    threatStatus: threatVerdict.status,
+    threatVerdict: threatVerdict.verdict || null,
+    threatLastChecked: threatVerdict.status === "unknown" ? null : now,
     createdAt: now,
     updatedAt: now,
   };
@@ -326,6 +354,9 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
     clickLimit: input.clickLimit,
     iosUrl: input.iosUrl,
     androidUrl: input.androidUrl,
+    // createdAt + threatStatus drive the interstitial gate in the resolver
+    createdAt: now,
+    threatStatus: threatVerdict.status,
     // Retargeting pixels
     trackingPixels: input.trackingPixels,
     enablePixelTracking: input.enablePixelTracking,
@@ -364,7 +395,7 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
         } catch (err) {
           console.error("upsertAgentRunFromLink failed:", err);
         }
-      })(),
+      })()
     );
   }
 
@@ -486,10 +517,7 @@ links.get("/", zValidator("query", listLinksSchema), async (c) => {
   // links the agent created via the team's API key.
   const conditions = [
     user.organizationId
-      ? or(
-          eq(schema.links.userId, user.id),
-          eq(schema.links.organizationId, user.organizationId),
-        )!
+      ? or(eq(schema.links.userId, user.id), eq(schema.links.organizationId, user.organizationId))!
       : eq(schema.links.userId, user.id),
   ];
 
@@ -629,8 +657,7 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
   // Plan-gate retargeting pixels (Pro+). Defense in depth — the dashboard
   // hides the UI for Free, but a hand-rolled PATCH could otherwise bypass.
   const wantsPixels =
-    (input.trackingPixels && input.trackingPixels.length > 0) ||
-    input.enablePixelTracking === true;
+    (input.trackingPixels && input.trackingPixels.length > 0) || input.enablePixelTracking === true;
   if (wantsPixels) {
     const plan = await getPlanForOrg(db, existing[0].organizationId);
     if (plan === "free") {
@@ -662,6 +689,15 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
       return badRequest(c, "This slug is reserved");
     }
 
+    // Re-run the brand-typosquat guard against whatever destination this
+    // link will point to after the update (use the new destinationUrl if
+    // provided, else the existing one).
+    const checkAgainst = input.destinationUrl ?? existing[0].destinationUrl;
+    const abuseCheck = checkSlugAbuse(input.slug, checkAgainst);
+    if (abuseCheck.blocked) {
+      return badRequest(c, abuseCheck.reason ?? "This slug is not allowed");
+    }
+
     const domain = input.domain ?? existing[0].domain;
     const slugExists = await db
       .select({ id: schema.links.id, isArchived: schema.links.isArchived })
@@ -677,6 +713,19 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
         // Active link with this slug exists
         return conflict(c, "This slug is already in use");
       }
+    }
+  }
+
+  // Re-check destination threat verdict whenever destinationUrl changes.
+  // Skip if only metadata is being updated — keeps the PATCH cheap.
+  let newThreatVerdict: Awaited<ReturnType<typeof checkDestinationThreat>> | null = null;
+  if (input.destinationUrl && input.destinationUrl !== existing[0].destinationUrl) {
+    newThreatVerdict = await checkDestinationThreat(c.env, input.destinationUrl);
+    if (shouldBlockOnCreate(newThreatVerdict)) {
+      return badRequest(
+        c,
+        "The new destination is flagged as malicious by Google Safe Browsing or Cloudflare URL Scanner."
+      );
     }
   }
 
@@ -734,6 +783,17 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
     ...(input.trackConversion !== undefined && { trackConversion: input.trackConversion }),
     ...(input.conversionUrl !== undefined && { conversionUrl: input.conversionUrl }),
     ...(input.skipDeduplication !== undefined && { skipDeduplication: input.skipDeduplication }),
+    // Persist fresh threat verdict if destination changed — drops back to
+    // 'unknown' on URL change so the interstitial re-engages until the next
+    // rescan confirms.
+    ...(newThreatVerdict
+      ? {
+          threatStatus: newThreatVerdict.status,
+          threatVerdict: newThreatVerdict.verdict || null,
+          threatLastChecked:
+            newThreatVerdict.status === "unknown" ? null : new Date().toISOString(),
+        }
+      : {}),
     updatedAt: new Date().toISOString(),
   };
 
@@ -770,6 +830,9 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
       clickLimit: updatedLink.clickLimit ?? undefined,
       iosUrl: updatedLink.iosUrl ?? undefined,
       androidUrl: updatedLink.androidUrl ?? undefined,
+      createdAt: updatedLink.createdAt ?? undefined,
+      threatStatus:
+        (updatedLink.threatStatus as "clean" | "flagged" | "unknown" | undefined) ?? undefined,
       // Retargeting pixels
       trackingPixels: updatedLink.trackingPixels
         ? JSON.parse(updatedLink.trackingPixels)

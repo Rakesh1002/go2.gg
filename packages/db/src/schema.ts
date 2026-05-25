@@ -616,6 +616,21 @@ export const links = sqliteTable(
     healthResponseTime: integer("health_response_time"), // Response time in ms
     healthErrorMessage: text("health_error_message"),
     lastHealthCheck: text("last_health_check"),
+    // Safety / abuse — set when Google Safe Browsing, Cloudflare URL Scanner,
+    // an abuse report review, or an admin disables the link. Redirect handler
+    // returns 410 Gone when is_disabled = 1, regardless of expiry/archive.
+    isDisabled: integer("is_disabled", { mode: "boolean" }).default(false),
+    disabledAt: text("disabled_at"),
+    disabledReason: text("disabled_reason"),
+    // threat_status: 'clean' | 'flagged' | 'unknown'. threat_verdict is the
+    // raw verdict string from whichever scanner flagged it (e.g.
+    // 'safe_browsing:SOCIAL_ENGINEERING'). threat_last_checked is the cron
+    // bookmark used by the daily rescan to pick links round-robin.
+    threatStatus: text("threat_status", { enum: ["clean", "flagged", "unknown"] }).default(
+      "unknown",
+    ),
+    threatVerdict: text("threat_verdict"),
+    threatLastChecked: text("threat_last_checked"),
     // Timestamps
     createdAt: text("created_at")
       .notNull()
@@ -635,11 +650,45 @@ export const links = sqliteTable(
     index("links_agent_id_idx").on(table.agentId),
     index("links_agent_run_id_idx").on(table.agentRunId),
     index("links_policy_expires_at_idx").on(table.policyExpiresAt),
+    index("links_is_disabled_idx").on(table.isDisabled),
+    index("links_threat_last_checked_idx").on(table.threatLastChecked),
   ],
 );
 
 export type Link = typeof links.$inferSelect;
 export type NewLink = typeof links.$inferInsert;
+
+// -----------------------------------------------------------------------------
+// Abuse Reports — public submissions from the interstitial / report-abuse page
+// -----------------------------------------------------------------------------
+
+export const abuseReports = sqliteTable(
+  "abuse_reports",
+  {
+    id: text("id").primaryKey(),
+    linkId: text("link_id").references(() => links.id, { onDelete: "cascade" }),
+    shortUrl: text("short_url").notNull(),
+    destinationUrl: text("destination_url"),
+    reason: text("reason").notNull(),
+    notes: text("notes"),
+    reporterEmail: text("reporter_email"),
+    reporterIpHash: text("reporter_ip_hash"),
+    status: text("status").notNull().default("open"),
+    resolution: text("resolution"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+    resolvedAt: text("resolved_at"),
+  },
+  (table) => [
+    index("abuse_reports_link_idx").on(table.linkId),
+    index("abuse_reports_status_idx").on(table.status),
+    index("abuse_reports_created_idx").on(table.createdAt),
+  ],
+);
+
+export type AbuseReport = typeof abuseReports.$inferSelect;
+export type NewAbuseReport = typeof abuseReports.$inferInsert;
 
 // -----------------------------------------------------------------------------
 // Custom Domains

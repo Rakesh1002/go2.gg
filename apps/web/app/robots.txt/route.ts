@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { siteConfig } from "@repo/config";
+import { NextResponse } from "next/server";
 
 export const dynamic = "force-static";
 export const revalidate = 3600;
@@ -32,36 +32,86 @@ export async function GET() {
     "cohere-ai", // Cohere
   ];
 
+  // Marketing / docs / well-known endpoints — these are the only paths
+  // we WANT indexed. Everything else, especially user-generated short-link
+  // slugs at the root, is off-limits to crawlers. Slug paths previously
+  // weren't disallowed; that's how Google Safe Browsing crawled a
+  // phishing-typosquat slug and flagged the entire shortener (2026-05).
+  const allowedPrefixes = [
+    "/",
+    "/about",
+    "/blog",
+    "/changelog",
+    "/compare",
+    "/competitors",
+    "/contact",
+    "/case-studies",
+    "/cookies",
+    "/dpa",
+    "/docs",
+    "/events",
+    "/features",
+    "/free",
+    "/guides",
+    "/help",
+    "/partners",
+    "/pricing",
+    "/privacy",
+    "/security",
+    "/solutions",
+    "/status",
+    "/terms",
+    "/tools",
+    "/careers",
+    "/acceptable-use",
+    "/affiliates",
+    "/agents",
+    "/developers",
+    "/skills",
+    "/report-abuse",
+    "/.well-known",
+    "/llms.txt",
+    "/llms-full.txt",
+    "/openapi.json",
+    "/sitemap.xml",
+    "/AGENTS.md",
+  ];
+
   const lines: string[] = [
     "# go2.gg robots policy",
-    "# We're agent-friendly — AI crawlers are explicitly allowed and the",
-    "# canonical machine-readable surfaces (llms.txt, openapi.json,",
-    "# agent-card.json, AGENTS.md) live at the well-known paths below.",
+    "# Marketing + docs are crawlable. /<slug> short-link paths are NOT.",
+    "# User-generated short links must not be indexed: indexed slugs are how",
+    "# Google Safe Browsing flags the entire shortener for abusive",
+    "# destinations one user pointed at.",
     "",
     "Content-Signal: ai-train=yes, search=yes, ai-input=yes",
     "",
     "User-agent: *",
-    "Allow: /",
-    "Allow: /llms.txt",
-    "Allow: /llms-full.txt",
-    "Allow: /openapi.json",
-    "Allow: /AGENTS.md",
-    "Allow: /.well-known/",
-    "Allow: /skills/",
-    "Allow: /developers/",
-    "Allow: /docs/",
-    "Allow: /agents/",
-    "Allow: /compare/",
+    ...allowedPrefixes.map((p) => `Allow: ${p}`),
     "Disallow: /api/",
     "Disallow: /dashboard/",
     "Disallow: /_next/",
     "Disallow: /admin/",
+    "Disallow: /r/",
+    "Disallow: /cloaked/",
+    // Catch-all: every short-link slug lives at /<something> off the root.
+    // We end with a wildcard Disallow that all crawlers honour, with the
+    // explicit Allow rules above winning by longest-prefix match.
+    "Disallow: /",
     "",
   ];
 
   for (const ua of aiCrawlers) {
     lines.push(`User-agent: ${ua}`);
-    lines.push("Allow: /");
+    for (const p of allowedPrefixes) {
+      lines.push(`Allow: ${p}`);
+    }
+    lines.push("Disallow: /api/");
+    lines.push("Disallow: /dashboard/");
+    lines.push("Disallow: /admin/");
+    lines.push("Disallow: /r/");
+    lines.push("Disallow: /cloaked/");
+    lines.push("Disallow: /");
     lines.push("");
   }
 
@@ -73,7 +123,6 @@ export async function GET() {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "public, max-age=3600, s-maxage=3600",
-      "X-Robots-Tag": "all",
     },
   });
 }

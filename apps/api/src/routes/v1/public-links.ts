@@ -23,6 +23,7 @@ import type { Env, CachedLink } from "../../bindings.js";
 import { created, badRequest } from "../../lib/response.js";
 import { generateSlug, isReservedSlug } from "../../lib/slug.js";
 import { generateSingleAISlug } from "../../lib/ai-slug.js";
+import { checkDestinationThreat, shouldBlockOnCreate } from "../../lib/safe-browsing.js";
 
 const publicLinks = new Hono<{ Bindings: Env }>();
 
@@ -61,6 +62,17 @@ publicLinks.post("/", zValidator("json", createGuestLinkSchema), async (c) => {
   }
 
   const domain = c.env.DEFAULT_DOMAIN ?? "go2.gg";
+
+  // Destination threat pre-flight — same guard as the authenticated path,
+  // applied here too because guest creation is the path that gets sprayed by
+  // phishing campaigns (no auth = no friction).
+  const threatVerdict = await checkDestinationThreat(c.env, input.destinationUrl);
+  if (shouldBlockOnCreate(threatVerdict)) {
+    return badRequest(
+      c,
+      "This destination is flagged as malicious. We can't shorten it.",
+    );
+  }
 
   // Generate AI-powered slug for memorable short URLs
   let slug: string;
@@ -105,6 +117,9 @@ publicLinks.post("/", zValidator("json", createGuestLinkSchema), async (c) => {
     description: "Guest link - Sign up to claim!",
     expiresAt,
     isPublic: true,
+    threatStatus: threatVerdict.status,
+    threatVerdict: threatVerdict.verdict || null,
+    threatLastChecked: threatVerdict.status === "unknown" ? null : now,
     createdAt: now,
     updatedAt: now,
   };

@@ -26,6 +26,7 @@ const RESERVED_PATHS = new Set([
   // Marketing pages
   "about",
   "acceptable-use",
+  "report-abuse",
   "careers",
   "case-studies",
   "changelog",
@@ -75,5 +76,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
   // - Geo-targeting and device targeting
   const apiUrl = `https://api.go2.gg/${slug}`;
 
-  return NextResponse.redirect(apiUrl, 302);
+  // X-Robots-Tag stops Google from indexing /<slug> paths on go2.gg. The
+  // moment a slug gets indexed, Safe Browsing's crawler can flag the
+  // shortener for whatever phishing destination an abuser pointed at —
+  // that's how the 2026-05 GSC warning happened. Apply on the redirect
+  // response so the header reaches the bot even on a 30x.
+  return NextResponse.redirect(apiUrl, {
+    status: 302,
+    headers: {
+      "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+      "Referrer-Policy": "no-referrer",
+    },
+  });
 }

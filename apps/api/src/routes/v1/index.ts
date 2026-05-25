@@ -17,39 +17,40 @@
 
 import { Hono } from "hono";
 import type { Env } from "../../bindings.js";
-import { users } from "./users.js";
-import { organizations } from "./organizations.js";
-import { files } from "./files.js";
-import { apiKeys } from "./api-keys.js";
-import { stats } from "./stats.js";
-import { links } from "./links.js";
-import { domains } from "./domains.js";
-import { publicLinks } from "./public-links.js";
-import { usage } from "./usage.js";
-import { slugs } from "./slugs.js";
-import { claimLinks } from "./claim-links.js";
-import { webhooksRouter } from "./webhooks.js";
-import { galleriesRouter } from "./galleries.js";
-import { qrRouter } from "./qr.js";
-import { publicGalleries } from "./public-galleries.js";
-import { aiRouter } from "./ai.js";
-import { bulk } from "./bulk.js";
-import { conversions, publicConversions } from "./conversions.js";
-import { migrations } from "./migrations.js";
-import { support } from "./support.js";
-import { sso } from "./sso.js";
-import { audit } from "./audit.js";
-import { contact } from "./contact.js";
-import { waitlist } from "./waitlist.js";
-import { newsletter } from "./newsletter.js";
-import { whiteLabel } from "./white-label.js";
-import { analyticsRouter } from "./analytics.js";
-import { affiliatesRouter } from "./affiliates.js";
 import { abTests } from "./ab-tests.js";
-import { folders } from "./folders.js";
+import { abuse } from "./abuse.js";
+import { affiliatesRouter } from "./affiliates.js";
 import { agentAttribution } from "./agent-attribution.js";
 import { agentRuns } from "./agent-runs.js";
+import { aiRouter } from "./ai.js";
+import { analyticsRouter } from "./analytics.js";
+import { apiKeys } from "./api-keys.js";
+import { audit } from "./audit.js";
+import { bulk } from "./bulk.js";
+import { claimLinks } from "./claim-links.js";
+import { contact } from "./contact.js";
+import { conversions, publicConversions } from "./conversions.js";
+import { domains } from "./domains.js";
+import { files } from "./files.js";
+import { folders } from "./folders.js";
+import { galleriesRouter } from "./galleries.js";
+import { links } from "./links.js";
 import { log } from "./log.js";
+import { migrations } from "./migrations.js";
+import { newsletter } from "./newsletter.js";
+import { organizations } from "./organizations.js";
+import { publicGalleries } from "./public-galleries.js";
+import { publicLinks } from "./public-links.js";
+import { qrRouter } from "./qr.js";
+import { slugs } from "./slugs.js";
+import { sso } from "./sso.js";
+import { stats } from "./stats.js";
+import { support } from "./support.js";
+import { usage } from "./usage.js";
+import { users } from "./users.js";
+import { waitlist } from "./waitlist.js";
+import { webhooksRouter } from "./webhooks.js";
+import { whiteLabel } from "./white-label.js";
 
 const v1 = new Hono<{ Bindings: Env }>();
 
@@ -89,5 +90,6 @@ v1.route("/folders", folders); // Link folders
 v1.route("/agent-attribution", agentAttribution); // Agent attribution (Links for AI Agents)
 v1.route("/agent-runs", agentRuns); // First-class agent run records (incl. zero-click runs)
 v1.route("/log", log); // Frontend log forwarder → Axiom dataset
+v1.route("/abuse", abuse); // Public abuse reports (no auth required)
 
 export { v1 };

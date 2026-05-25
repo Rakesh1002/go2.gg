@@ -127,6 +127,18 @@ export interface Env {
   /** Axiom dataset name to publish into (default: go2) */
   AXIOM_DATASET?: string;
 
+  /**
+   * Google Safe Browsing v4 Lookup API key. When unset, the destination
+   * threat check is a no-op and lib/safe-browsing.ts returns "unknown" —
+   * link creation is not blocked.
+   */
+  GOOGLE_SAFE_BROWSING_API_KEY?: string;
+
+  /** Cloudflare account id for the URL Scanner v2 API (second-layer phishing check). */
+  CLOUDFLARE_ACCOUNT_ID?: string;
+  /** Cloudflare API token with `URL Scanner:Read` scope. */
+  CLOUDFLARE_URLSCANNER_TOKEN?: string;
+
   /** Turnstile secret key for bot protection */
   TURNSTILE_SECRET_KEY?: string;
 
@@ -281,6 +293,19 @@ export interface CachedLink {
   // time, but a stale entry can race with a click. The redirect handler treats
   // a truthy isArchived as 410 Gone.
   isArchived?: boolean;
+  // Safety state — populated when the link is disabled by Safe Browsing,
+  // URL Scanner, an abuse report, or an admin. The redirect handler returns
+  // 410 Gone when isDisabled is true. disabledReason is shown on the
+  // interstitial / report-abuse page; never expose it raw to crawlers.
+  isDisabled?: boolean;
+  disabledReason?: string;
+  // Per-destination safety verdict (mirrors links.threat_status). The
+  // resolver gates the interstitial on this: "clean" → straight redirect,
+  // "flagged" → already disabled (won't reach here), "unknown" → interstitial.
+  threatStatus?: "clean" | "flagged" | "unknown";
+  // ISO timestamp — used by the redirect handler to gate the interstitial
+  // ("show a warning for links created < 24h ago").
+  createdAt?: string;
 }
 
 /**

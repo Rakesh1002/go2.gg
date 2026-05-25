@@ -5,18 +5,19 @@
  * Protected by admin authentication.
  */
 
-import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
 import { createD1Client, createD1Repositories } from "@repo/db/d1";
+import { Hono } from "hono";
+import { z } from "zod";
 import type { Env } from "../../bindings.js";
-import { ok, badRequest } from "../../lib/response.js";
+import { logEvent } from "../../lib/axiom.js";
 import {
   addCollaborator,
-  removeCollaborator,
   checkCollaborator,
+  removeCollaborator,
   verifyGithubUser,
 } from "../../lib/github.js";
+import { badRequest, ok } from "../../lib/response.js";
 
 const admin = new Hono<{ Bindings: Env }>();
 
@@ -41,6 +42,19 @@ admin.use("*", async (c, next) => {
 
   // Verify admin token. Set via `wrangler secret put ADMIN_TOKEN`.
   if (!c.env.ADMIN_TOKEN || token !== c.env.ADMIN_TOKEN) {
+    // Log every failed admin auth attempt — these are usually leaked-token
+    // probes or misconfigured callers. Includes IP + UA + path for triage.
+    await logEvent(
+      c.env,
+      "admin.auth.failed",
+      {
+        path: c.req.path,
+        method: c.req.method,
+        ip: c.req.header("CF-Connecting-IP") ?? "unknown",
+        ua: (c.req.header("user-agent") ?? "").slice(0, 200),
+      },
+      "warn"
+    ).catch(() => undefined);
     return c.json(
       {
         success: false,
@@ -51,6 +65,46 @@ admin.use("*", async (c, next) => {
   }
 
   await next();
+});
+
+/**
+ * Audit log for every mutating admin call. Captures method, path, IP, UA,
+ * and (for POST/PATCH/PUT/DELETE) the top-level body keys — never raw
+ * values, since some admin payloads carry email addresses or other PII.
+ * GET requests are deliberately skipped: they're read-only enumeration and
+ * would 10x the log volume without adding signal.
+ */
+admin.use("*", async (c, next) => {
+  const method = c.req.method;
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
+
+  // Buffer body keys without consuming the body for the downstream handler.
+  let bodyKeys: string[] = [];
+  try {
+    const clone = c.req.raw.clone();
+    const ct = clone.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
+      const json = (await clone.json()) as Record<string, unknown>;
+      bodyKeys = Object.keys(json).slice(0, 20);
+    }
+  } catch {
+    // Non-JSON or unreadable body — log without keys.
+  }
+
+  await logEvent(
+    c.env,
+    "admin.action",
+    {
+      method,
+      path: c.req.path,
+      ip: c.req.header("CF-Connecting-IP") ?? "unknown",
+      ua: (c.req.header("user-agent") ?? "").slice(0, 200),
+      bodyKeys,
+    },
+    "info"
+  ).catch(() => undefined);
+
+  return next();
 });
 
 // -----------------------------------------------------------------------------
@@ -84,11 +138,11 @@ admin.post("/links/resync-kv", async (c) => {
   for (;;) {
     const stmt = cursor
       ? c.env.DB.prepare(
-          "SELECT * FROM links WHERE is_archived = 0 AND id > ? ORDER BY id ASC LIMIT ?",
+          "SELECT * FROM links WHERE is_archived = 0 AND id > ? ORDER BY id ASC LIMIT ?"
         ).bind(cursor, batchSize)
-      : c.env.DB.prepare(
-          "SELECT * FROM links WHERE is_archived = 0 ORDER BY id ASC LIMIT ?",
-        ).bind(batchSize);
+      : c.env.DB.prepare("SELECT * FROM links WHERE is_archived = 0 ORDER BY id ASC LIMIT ?").bind(
+          batchSize
+        );
 
     const result = await stmt.all<Record<string, unknown>>();
     const rows = result.results ?? [];
@@ -112,14 +166,9 @@ admin.post("/links/resync-kv", async (c) => {
           domain: row.domain as string,
           slug: row.slug as string,
           userId: (row.user_id as string | null) ?? undefined,
-          organizationId:
-            (row.organization_id as string | null) ?? undefined,
-          geoTargets: row.geo_targets
-            ? JSON.parse(row.geo_targets as string)
-            : undefined,
-          deviceTargets: row.device_targets
-            ? JSON.parse(row.device_targets as string)
-            : undefined,
+          organizationId: (row.organization_id as string | null) ?? undefined,
+          geoTargets: row.geo_targets ? JSON.parse(row.geo_targets as string) : undefined,
+          deviceTargets: row.device_targets ? JSON.parse(row.device_targets as string) : undefined,
           passwordHash: (row.password_hash as string | null) ?? undefined,
           expiresAt: expiresAt ?? undefined,
           policyExpiresAt: policyExpiresAt ?? undefined,
@@ -134,21 +183,16 @@ admin.post("/links/resync-kv", async (c) => {
           trackingPixels: row.tracking_pixels
             ? JSON.parse(row.tracking_pixels as string)
             : undefined,
-          enablePixelTracking:
-            row.enable_pixel_tracking === 1 ? true : undefined,
-          requirePixelConsent:
-            row.require_pixel_consent === 1 ? true : undefined,
+          enablePixelTracking: row.enable_pixel_tracking === 1 ? true : undefined,
+          requirePixelConsent: row.require_pixel_consent === 1 ? true : undefined,
           trackAnalytics: row.track_analytics !== 0,
           publicStats: row.public_stats === 1 ? true : undefined,
           trackConversion: row.track_conversion === 1 ? true : undefined,
-          skipDeduplication:
-            row.skip_deduplication === 1 ? true : undefined,
+          skipDeduplication: row.skip_deduplication === 1 ? true : undefined,
           agentId: (row.agent_id as string | null) ?? undefined,
           agentRunId: (row.agent_run_id as string | null) ?? undefined,
           agentActorId: (row.agent_actor_id as string | null) ?? undefined,
-          agentMetadata: row.agent_metadata
-            ? JSON.parse(row.agent_metadata as string)
-            : undefined,
+          agentMetadata: row.agent_metadata ? JSON.parse(row.agent_metadata as string) : undefined,
           isArchived: false,
         };
         const key = `${cached.domain}:${cached.slug}`;
@@ -616,6 +660,59 @@ admin.post("/github/verify-user", zValidator("json", verifyUserSchema), async (c
   const exists = await verifyGithubUser(username);
 
   return ok(c, { username, exists });
+});
+
+// -----------------------------------------------------------------------------
+// Trust & safety — abuse warnings
+// -----------------------------------------------------------------------------
+
+const abuseWarningSchema = z.object({
+  email: z.string().email(),
+  name: z.string().optional(),
+  reason: z.string().min(1),
+  links: z
+    .array(
+      z.object({
+        shortUrl: z.string().url(),
+        destinationUrl: z.string().url(),
+        createdAt: z.string(),
+      })
+    )
+    .min(1)
+    .max(20),
+});
+
+/**
+ * POST /admin/abuse-warning
+ *
+ * Sends a phishing-warning email to a user whose link(s) were disabled for
+ * social engineering / phishing / malware. Email includes the offending
+ * slugs + destinations and warns that the account will be suspended on
+ * recurrence. Queued via BACKGROUND_QUEUE so a single send failure doesn't
+ * block the admin curl.
+ */
+admin.post("/abuse-warning", zValidator("json", abuseWarningSchema), async (c) => {
+  const input = c.req.valid("json");
+
+  if (!c.env.BACKGROUND_QUEUE) {
+    return badRequest(c, "BACKGROUND_QUEUE binding is not configured", "QUEUE_MISSING");
+  }
+
+  await c.env.BACKGROUND_QUEUE.send({
+    type: "email:send",
+    payload: {
+      to: input.email,
+      template: "phishing-warning",
+      data: {
+        customerName: input.name ?? input.email.split("@")[0],
+        links: input.links,
+        reason: input.reason,
+        appealUrl: "mailto:abuse@go2.gg",
+      },
+    },
+  });
+
+  return ok(c, { queued: true, to: input.email, linkCount: input.links.length });
 });
 
 export { admin };

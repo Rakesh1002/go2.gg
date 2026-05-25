@@ -42,6 +42,10 @@ import {
   AffiliateApprovedEmail,
   AffiliateCommissionEarnedEmail,
   AffiliatePayoutSentEmail,
+  // Trust & safety
+  LinkDisabledForSafetyEmail,
+  AbuseReportEmail,
+  PhishingWarningEmail,
 } from "@repo/email";
 
 /**
@@ -90,7 +94,11 @@ export type EmailTemplate =
   // Affiliate program
   | "affiliate-approved"
   | "affiliate-commission-earned"
-  | "affiliate-payout-sent";
+  | "affiliate-payout-sent"
+  // Trust & safety
+  | "link-disabled-for-safety"
+  | "abuse-report"
+  | "phishing-warning";
 
 /**
  * Default email subjects for each template
@@ -126,6 +134,11 @@ const EMAIL_SUBJECTS: Record<EmailTemplate, string> = {
   "affiliate-approved": "You're in the Go2 affiliate program",
   "affiliate-commission-earned": "You earned a commission from Go2",
   "affiliate-payout-sent": "Your Go2 affiliate payout is on its way",
+  // Trust & safety
+  "link-disabled-for-safety": "A Go2 link of yours was disabled for safety",
+  "abuse-report": "New abuse report on go2.gg",
+  "phishing-warning":
+    "Action required: phishing detected on your Go2 link — recurrence will suspend your account",
 };
 
 /**
@@ -396,6 +409,38 @@ function renderTemplate(
         name: (data.name as string) || "there",
         amount: data.amount as string,
         paypalEmail: data.paypalEmail as string,
+      });
+
+    case "link-disabled-for-safety":
+      return LinkDisabledForSafetyEmail({
+        customerName: (data.customerName as string) || "Customer",
+        shortUrl: data.shortUrl as string,
+        destinationUrl: data.destinationUrl as string,
+        reason: data.reason as string,
+        dashboardUrl: data.dashboardUrl as string,
+      });
+
+    case "abuse-report":
+      return AbuseReportEmail({
+        reportId: data.reportId as string,
+        shortUrl: data.shortUrl as string,
+        destinationUrl: (data.destinationUrl as string | null) ?? null,
+        reason: data.reason as string,
+        notes: (data.notes as string) || "",
+        reporterEmail: (data.reporterEmail as string) || "",
+        adminUrl: data.adminUrl as string,
+      });
+
+    case "phishing-warning":
+      return PhishingWarningEmail({
+        customerName: (data.customerName as string) || "there",
+        links: data.links as Array<{
+          shortUrl: string;
+          destinationUrl: string;
+          createdAt: string;
+        }>,
+        reason: data.reason as string,
+        appealUrl: (data.appealUrl as string) || "mailto:abuse@go2.gg",
       });
 
     default:
