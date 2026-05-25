@@ -1419,21 +1419,20 @@ export default {
 
   /**
    * Inbound email handler — Cloudflare Email Routing routes every message
-   * matching the catch-all rule (*@go2.gg) to this Worker. We forward the
-   * message to rakesh@roushan.xyz so all incoming mail funnels into a single
-   * personal inbox while leaving room to add automated processing later
-   * (e.g. parse "support@" into a ticket, or "billing@" into Stripe).
+   * matching the catch-all rule (*@go2.gg) to this Worker. The destination is
+   * configured per-deploy via the MAIL_FORWARD_TO secret (defaults to
+   * support@go2.gg) so the public repo carries no operator personal address.
    *
-   * Setup steps (one-time, in CF dashboard):
-   * 1. Email > Email Routing > Destination addresses → verify
-   *    rakesh@roushan.xyz.
-   * 2. Email > Email Routing > Routing rules → "Catch-all address" → set
+   * Setup (one-time, in CF dashboard + CLI):
+   * 1. Email > Email Routing > Destination addresses → verify your inbox.
+   * 2. `wrangler secret put MAIL_FORWARD_TO --env production` → that inbox.
+   * 3. Email > Email Routing > Routing rules → "Catch-all address" → set
    *    action to "Send to a Worker" and choose this Worker (go2-api-production).
    *
    * @see https://developers.cloudflare.com/email-routing/email-workers/runtime-api/
    */
-  async email(message: ForwardableEmailMessage, _env: Env, _ctx: ExecutionContext): Promise<void> {
-    const FORWARD_TO = "rakesh@roushan.xyz";
+  async email(message: ForwardableEmailMessage, env: Env, _ctx: ExecutionContext): Promise<void> {
+    const FORWARD_TO = env.MAIL_FORWARD_TO ?? "support@go2.gg";
 
     // Optional per-address routing — currently everything funnels to the
     // single inbox, but we keep the structure so future addresses (support@,

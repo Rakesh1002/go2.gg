@@ -191,6 +191,14 @@ export interface Env {
   /** Marketing email sender (contact form, waitlist) */
   EMAIL_FROM_MARKETING?: string;
 
+  /**
+   * Destination address for inbound mail forwarded by the email() Worker
+   * handler. Set per-deploy via `wrangler secret put MAIL_FORWARD_TO`. Falls
+   * back to support@go2.gg in source so the public repo carries no operator
+   * personal address.
+   */
+  MAIL_FORWARD_TO?: string;
+
   // -------------------------------------------------------------------------
   // Adapter Configuration
   // -------------------------------------------------------------------------
