@@ -9,7 +9,7 @@ import { boilerplateConfig } from "@repo/config";
 /**
  * Demo Banner
  *
- * Shows a banner indicating this is a demo of the ShipQuest boilerplate.
+ * Shows a banner indicating this is a demo of Go2.
  * Only visible when NEXT_PUBLIC_DEMO_MODE=true
  */
 export function DemoBanner() {

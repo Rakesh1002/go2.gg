@@ -1,4 +1,4 @@
-# ShipQuest Chrome Extension
+# Go2 Chrome Extension
 
 A React-based Chrome Extension boilerplate with TypeScript and Tailwind CSS.
 
@@ -84,9 +84,9 @@ chrome.tabs.sendMessage(tabId, { type: "TO_CONTENT", data: {} });
 
 ## Authentication
 
-The extension syncs authentication state with the main ShipQuest website:
+The extension syncs authentication state with the main Go2 website:
 
-1. User logs in on shipquest.dev
+1. User logs in on go2.gg
 2. Content script detects auth state
 3. Auth is synced to extension storage
 4. Popup shows logged-in state

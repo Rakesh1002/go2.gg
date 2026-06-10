@@ -1,11 +1,11 @@
 # =============================================================================
-# ShipQuest Docker Build
+# Go2 Docker Build
 # =============================================================================
 # Multi-stage build for production deployment
 #
 # Usage:
-#   docker build -t shipquest .
-#   docker run -p 3000:3000 --env-file .env.local shipquest
+#   docker build -t go2 .
+#   docker run -p 3000:3000 --env-file .env.local go2
 # =============================================================================
 
 # -----------------------------------------------------------------------------

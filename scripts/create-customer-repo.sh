@@ -408,7 +408,7 @@ echo -e "${GREEN}Creating generic landing page...${NC}"
 cat > "$OUTPUT_DIR/apps/web/app/(marketing)/page.tsx" << 'EOF'
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getMetadata, siteConfig, pricingPlans, featuresConfig, features, testimonials, faqItems } from "@repo/config";
+import { getMetadata, siteConfig, pricingPlans, featuresConfig, features, faqItems } from "@repo/config";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -427,7 +427,6 @@ import {
   Star,
 } from "lucide-react";
 import { TechStackSection } from "@/components/marketing/sections/tech-stack";
-import { TestimonialsCarousel } from "@/components/marketing/sections/testimonials-carousel";
 
 export const metadata: Metadata = getMetadata({
   title: `${siteConfig.name} - ${siteConfig.tagline}`,
@@ -549,9 +548,6 @@ export default function HomePage() {
 
       {/* Tech Stack */}
       <TechStackSection />
-
-      {/* Testimonials */}
-      {testimonials.length > 0 && <TestimonialsCarousel />}
 
       {/* Pricing Preview */}
       <section className="container px-4 py-16 md:py-24" id="pricing">

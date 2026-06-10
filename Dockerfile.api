@@ -1,11 +1,11 @@
 # =============================================================================
-# ShipQuest API Docker Build
+# Go2 API Docker Build
 # =============================================================================
 # Builds the Hono API for Node.js runtime
 #
 # Usage:
-#   docker build -f Dockerfile.api -t shipquest-api .
-#   docker run -p 8787:8787 --env-file .env.local shipquest-api
+#   docker build -f Dockerfile.api -t go2-api .
+#   docker run -p 8787:8787 --env-file .env.local go2-api
 # =============================================================================
 
 # -----------------------------------------------------------------------------

@@ -15,7 +15,6 @@ export { FAQSection } from "./faq-section";
 export { Newsletter } from "./newsletter";
 export { CTA } from "./cta";
 export { TechStackSection } from "./tech-stack";
-export { TestimonialsCarousel } from "./testimonials-carousel";
 export { CodePreview } from "./code-preview";
 export { CompetitorComparison } from "./competitor-comparison";
 export { VideoDemo } from "./video-demo";
