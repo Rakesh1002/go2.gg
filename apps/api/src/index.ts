@@ -729,7 +729,7 @@ app.get("/:slug", async (c, next) => {
   //
   // Crawlers / preview bots get the interstitial (noindex), so the
   // destination URL is never indexed via go2.gg's path even if a slug leaks.
-  const ageMs = link.createdAt ? Date.now() - new Date(link.createdAt).getTime() : Infinity;
+  const ageMs = link.createdAt ? Date.now() - new Date(link.createdAt).getTime() : Number.POSITIVE_INFINITY;
   const isNewLink = ageMs < 60 * 60 * 1000;
   const isGuest = link.userId == null;
   const isUnverified = link.threatStatus !== "clean";

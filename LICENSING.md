@@ -6,7 +6,7 @@ Go2 is open source software licensed under the GNU Affero General Public License
 
 ```
 Go2 - The Open Source Link Management Platform
-Copyright (C) 2024-present Rakesh Roushan (Go2)
+Copyright (C) 2026-present Rakesh Roushan (Go2)
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
