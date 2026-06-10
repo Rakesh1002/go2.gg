@@ -58,9 +58,10 @@ export default function PlaygroundPage() {
             Agent playground
           </h1>
           <p className="mx-auto max-w-2xl text-[var(--marketing-text-muted)] text-lg">
-            Mint a tracked short URL right here. Share it. Watch the clicks
-            land in real time. Then copy the prompt below and ask your agent
-            to summarize them.
+            Mint a tracked short URL right here. Share it. Watch the clicks land
+            in real time. Then install the MCP server in one line and let your
+            agent read the same data back — every link attributed to the run
+            that made it.
           </p>
         </div>
       </section>

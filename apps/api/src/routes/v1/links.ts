@@ -19,6 +19,7 @@ import { z } from "zod";
 import type { CachedLink, Env } from "../../bindings.js";
 import { generateSingleAISlug } from "../../lib/ai-slug.js";
 import { checkFolderAccess, refreshFolderLinkCounts } from "../../lib/folders.js";
+import { hashPassword } from "../../lib/password.js";
 import { captureEvent } from "../../lib/product-analytics.js";
 import {
   badRequest,
@@ -259,12 +260,7 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
   // Hash password if provided
   let passwordHash: string | undefined;
   if (input.password) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(input.password);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    passwordHash = Array.from(new Uint8Array(hashBuffer))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    passwordHash = await hashPassword(input.password);
   }
 
   const id = crypto.randomUUID();
@@ -732,12 +728,7 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
   // Hash new password if provided
   let passwordHash = existing[0].passwordHash;
   if (input.password) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(input.password);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    passwordHash = Array.from(new Uint8Array(hashBuffer))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    passwordHash = await hashPassword(input.password);
   }
 
   const updateData: Partial<schema.NewLink> = {

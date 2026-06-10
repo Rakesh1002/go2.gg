@@ -175,6 +175,8 @@ export function PlaygroundClient() {
   // Step 2 — share + Step 3 — chart (live)
   // ---------------------------------------------------------------------------
 
+  const mcpInstall = "claude mcp add go2 -- npx -y go2-mcp-server@latest";
+
   const promptText = `Get analytics for ${link.shortUrl} using the Go2 MCP server. Show me clicks today and the top 3 countries.`;
 
   const restCurl = `curl -s "${API_URL}/api/v1/public/links/${link.id}/stats" | jq '.'`;
@@ -319,11 +321,18 @@ export function PlaygroundClient() {
         <CardHeader>
           <CardTitle className="text-xl">Ask your agent</CardTitle>
           <p className="text-[var(--marketing-text-muted)] text-sm">
-            Copy one of these into Claude Code, Cursor, or your own MCP /
-            REST integration. Same data, programmatic.
+            One line to install the MCP server, then drop the prompt into Claude
+            Code, Cursor, or your own integration. Every link your agent mints
+            this way is attributed to the run that made it.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
+          <Snippet
+            label="Install MCP (one line)"
+            language="bash"
+            value={mcpInstall}
+            onCopy={() => copy(mcpInstall, "Install command copied")}
+          />
           <Snippet
             label="MCP prompt"
             value={promptText}

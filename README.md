@@ -207,7 +207,7 @@ ORM, Better Auth, React Email, Stripe.
 ## License
 
 [GNU AGPL v3.0](./LICENSE). Plain-English summary in
-[LICENSE.md](./LICENSE.md).
+[LICENSING.md](./LICENSING.md).
 
 > **AGPL §13 note.** When you run Go2 as a network service, you must
 > offer your users access to your modified source. The hosted version
