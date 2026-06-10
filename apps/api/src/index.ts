@@ -73,7 +73,14 @@ import { logEvent as logToAxiom } from "./lib/axiom.js";
 import { generateCloakedPage } from "./lib/cloaked-page.js";
 
 // Safety interstitial + disabled-link page
-import { renderDisabledPage, renderInterstitial } from "./lib/safety-pages.js";
+import {
+  renderDisabledPage,
+  renderInterstitial,
+  renderPasswordPage,
+} from "./lib/safety-pages.js";
+
+import { getCookie, setCookie } from "hono/cookie";
+import { signUnlockToken, verifyPassword, verifyUnlockToken } from "./lib/password.js";
 
 // OpenAPI spec
 import { getOpenApiSpec } from "./lib/openapi-spec.js";
@@ -320,17 +327,34 @@ app.get("/:slug", async (c, next) => {
     }
   }
 
-  // Check password protection (return special response)
+  // Password protection. A valid per-link unlock cookie (set by the verify
+  // endpoint after a correct password) lets the request fall through to the
+  // normal redirect path below, so the click is tracked exactly once, here.
   if (link.passwordHash) {
-    // Password-protected links require POST with password
-    return c.json(
-      {
-        protected: true,
-        message: "This link is password protected",
-        verifyUrl: `/api/v1/links/${link.id}/verify`,
-      },
-      { status: 401 }
-    );
+    const secret = c.env.CSRF_SECRET ?? "";
+    const cookie = getCookie(c, `go2_pw_${link.id}`);
+    const unlocked =
+      secret !== "" && cookie != null && (await verifyUnlockToken(cookie, link.id, secret));
+    if (!unlocked) {
+      const wantsHtml = (c.req.header("accept") ?? "").includes("text/html");
+      if (wantsHtml) {
+        return c.html(
+          renderPasswordPage({
+            shortUrl: `https://${link.domain}/${link.slug}`,
+            linkId: link.id,
+          }),
+          { status: 401 }
+        );
+      }
+      return c.json(
+        {
+          protected: true,
+          message: "This link is password protected",
+          verifyUrl: `/api/v1/links/${link.id}/verify`,
+        },
+        { status: 401 }
+      );
+    }
   }
 
   // Resolve destination based on targeting rules (iOS/Android/geo/device)
@@ -769,6 +793,82 @@ app.route("/webhooks", webhooks);
 
 // Apply rate limiting to API routes
 app.use("/api/*", rateLimitMiddleware({ limit: 100, window: 60 }));
+
+// Password-protected link unlock (public, no auth). The form on the password
+// page posts here; a correct password sets a short-lived per-link cookie and
+// bounces back to the short URL so the normal redirect path tracks the click
+// exactly once. Registered after the rate limiter to throttle brute force.
+app.post("/api/v1/links/:id/verify", async (c) => {
+  const id = c.req.param("id");
+  const secret = c.env.CSRF_SECRET;
+  const wantsHtml = (c.req.header("accept") ?? "").includes("text/html");
+
+  if (!secret) {
+    return c.json({ error: "Password verification is not configured" }, { status: 500 });
+  }
+
+  let password = "";
+  if ((c.req.header("content-type") ?? "").includes("application/json")) {
+    const body = await c.req
+      .json<{ password?: string }>()
+      .catch(() => ({}) as { password?: string });
+    password = body.password ?? "";
+  } else {
+    const body = await c.req.parseBody();
+    password = typeof body.password === "string" ? body.password : "";
+  }
+
+  const { drizzle } = await import("drizzle-orm/d1");
+  const { eq } = await import("drizzle-orm");
+  const schema = await import("@repo/db");
+  const db = drizzle(c.env.DB, { schema });
+  const rows = await db
+    .select({
+      id: schema.links.id,
+      slug: schema.links.slug,
+      domain: schema.links.domain,
+      passwordHash: schema.links.passwordHash,
+      isDisabled: schema.links.isDisabled,
+    })
+    .from(schema.links)
+    .where(eq(schema.links.id, id))
+    .limit(1);
+  const link = rows[0];
+
+  if (!link || !link.passwordHash || link.isDisabled) {
+    return c.json({ error: "Link not found" }, { status: 404 });
+  }
+
+  const ok = password.length > 0 && (await verifyPassword(password, link.passwordHash));
+  if (!ok) {
+    if (wantsHtml) {
+      return c.html(
+        renderPasswordPage({
+          shortUrl: `https://${link.domain}/${link.slug}`,
+          linkId: link.id,
+          error: true,
+        }),
+        { status: 401 }
+      );
+    }
+    return c.json({ error: "Incorrect password" }, { status: 401 });
+  }
+
+  const token = await signUnlockToken(link.id, secret);
+  setCookie(c, `go2_pw_${link.id}`, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    path: "/",
+    maxAge: 60 * 60,
+  });
+
+  const shortUrl = `https://${link.domain}/${link.slug}`;
+  if (wantsHtml) {
+    return c.redirect(shortUrl, 302);
+  }
+  return c.json({ success: true, shortUrl });
+});
 
 // Mount auth routes (public endpoints)
 // /oauth2 must mount BEFORE /auth so the more-specific prefix wins.

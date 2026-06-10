@@ -67,3 +67,45 @@ export async function verifyPassword(password: string, stored: string): Promise<
   const buf = await crypto.subtle.digest("SHA-256", data);
   return constantTimeEqual(toHex(new Uint8Array(buf)), stored);
 }
+
+const UNLOCK_TTL_MS = 60 * 60 * 1000;
+
+async function hmacHex(secret: string, message: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return toHex(new Uint8Array(sig));
+}
+
+/**
+ * Short-lived cookie token proving a correct password was entered for one link.
+ * Bound to the link id and an expiry so it can't be replayed across links or
+ * after it lapses. Signed with the worker's CSRF_SECRET.
+ */
+export async function signUnlockToken(
+  linkId: string,
+  secret: string,
+  now: number = Date.now()
+): Promise<string> {
+  const exp = now + UNLOCK_TTL_MS;
+  const sig = await hmacHex(secret, `${linkId}.${exp}`);
+  return `${exp}.${sig}`;
+}
+
+export async function verifyUnlockToken(
+  token: string,
+  linkId: string,
+  secret: string,
+  now: number = Date.now()
+): Promise<boolean> {
+  const [expStr, sig] = token.split(".");
+  if (!expStr || !sig) return false;
+  const exp = Number(expStr);
+  if (!Number.isFinite(exp) || exp < now) return false;
+  return constantTimeEqual(sig, await hmacHex(secret, `${linkId}.${exp}`));
+}

@@ -178,3 +178,34 @@ export function renderDisabledPage(opts: { shortUrl: string; reason: string }): 
 </body>
 </html>`;
 }
+
+export function renderPasswordPage(opts: {
+  shortUrl: string;
+  linkId: string;
+  error?: boolean;
+}): string {
+  const shortUrl = escapeHtml(opts.shortUrl);
+  const action = `/api/v1/links/${encodeURIComponent(opts.linkId)}/verify`;
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  ${COMMON_HEAD}
+  <title>Password required – go2.gg</title>
+</head>
+<body>
+  <main class="card">
+    <span class="badge badge-warn">Protected</span>
+    <h1>This link is password protected</h1>
+    <p>Enter the password to continue to the destination.</p>
+    <form method="post" action="${action}">
+      <input type="password" name="password" autocomplete="off" autofocus required placeholder="Password"
+        style="width:100%;padding:12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg);font-size:15px;margin-bottom:12px" />
+      ${opts.error ? `<p style="color:var(--danger);margin:0 0 12px">Incorrect password. Try again.</p>` : ""}
+      <button type="submit" class="btn btn-primary" style="width:100%">Continue</button>
+    </form>
+    <small><strong>${shortUrl}</strong> · Shortened by <a href="https://go2.gg" rel="noopener">go2.gg</a></small>
+  </main>
+</body>
+</html>`;
+}

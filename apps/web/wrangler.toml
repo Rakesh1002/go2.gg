@@ -10,6 +10,7 @@
 
 name = "go2-web"
 main = ".open-next/worker.js"
+account_id = "29252517c2955c4e7ffa117baf1dcbca"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
