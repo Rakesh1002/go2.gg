@@ -363,7 +363,7 @@ https://example.com/page3,,Example Page 3,`;
 
               {capabilities.canAddFolder && (
                 <div className="space-y-2">
-                  <label className="font-medium text-sm">Import to folder</label>
+                  <span className="font-medium text-sm">Import to folder</span>
                   <FolderPicker
                     value={targetFolderId}
                     onChange={(value) => setTargetFolderId(value === "none" ? null : value)}

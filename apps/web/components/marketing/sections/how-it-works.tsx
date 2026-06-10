@@ -55,7 +55,7 @@ export function HowItWorks({
           <div className="absolute top-0 left-8 hidden h-full w-0.5 bg-border md:block" />
 
           <div className="space-y-12">
-            {steps.map((item, index) => (
+            {steps.map((item) => (
               <div key={item.step} className="relative flex gap-6">
                 {/* Step number */}
                 <div className="relative z-10 flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-4 border-background bg-primary font-bold text-primary-foreground text-xl">
