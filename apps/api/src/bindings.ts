@@ -341,6 +341,12 @@ declare module "hono" {
     requestId: string;
     /** Resolved link from redirect handler */
     link?: CachedLink;
+    /**
+     * Set when the apex notFound handler proxies the request to the web
+     * worker. The security-headers middleware must not stamp the API's CSP
+     * onto those responses — it breaks Next.js hydration.
+     */
+    apexWebFallthrough?: boolean;
   }
 }
 

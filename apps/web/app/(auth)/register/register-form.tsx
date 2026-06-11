@@ -1,18 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { Turnstile } from "@/components/turnstile";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
 import { authClient } from "@/lib/auth/client";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { toast } from "sonner";
+import { z } from "zod";
 
 const registerSchema = z
   .object({
@@ -33,6 +34,7 @@ export function RegisterForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [isOAuthLoading, setIsOAuthLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const {
     register,
@@ -51,6 +53,9 @@ export function RegisterForm() {
         email: data.email,
         password: data.password,
         name: data.name,
+        fetchOptions: {
+          headers: turnstileToken ? { "cf-turnstile-response": turnstileToken } : {},
+        },
       });
 
       if (result.error) {
@@ -184,6 +189,8 @@ export function RegisterForm() {
               <p className="text-destructive text-sm">{errors.confirmPassword.message}</p>
             )}
           </div>
+
+          <Turnstile onVerify={setTurnstileToken} />
 
           <p className="text-muted-foreground text-xs">
             By creating an account, you agree to our{" "}

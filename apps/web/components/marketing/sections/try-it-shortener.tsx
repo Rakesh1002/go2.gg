@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
-import { motion } from "framer-motion";
-import { ArrowRight, Copy, Loader2, Sparkles, Link2 } from "lucide-react";
+import { Turnstile } from "@/components/turnstile";
 import { Button } from "@/components/ui/button";
+import { motion } from "framer-motion";
+import { ArrowRight, Copy, Link2, Loader2, Sparkles } from "lucide-react";
+import Link from "next/link";
+import { useState } from "react";
 import { toast } from "sonner";
 
 interface CreatedLink {
@@ -37,6 +38,7 @@ export function TryItShortener() {
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<CreatedLink | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,7 +49,10 @@ export function TryItShortener() {
       const claimToken = getOrCreateClaimToken();
       const res = await fetch(`${API_URL}/api/v1/public/links`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...(turnstileToken ? { "cf-turnstile-response": turnstileToken } : {}),
+        },
         body: JSON.stringify({ destinationUrl: url.trim(), claimToken }),
       });
       if (!res.ok) {
@@ -91,7 +96,7 @@ export function TryItShortener() {
             placeholder="https://your-long-url.com/..."
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            className="h-10 w-full min-w-0 flex-1 border-0 bg-transparent text-base text-[var(--marketing-text)] outline-none placeholder:text-[var(--marketing-text-muted)] focus:outline-none focus:ring-0"
+            className="h-10 w-full min-w-0 flex-1 border-0 bg-transparent text-[var(--marketing-text)] text-base outline-none placeholder:text-[var(--marketing-text-muted)] focus:outline-none focus:ring-0"
             required
           />
         </div>
@@ -109,6 +114,10 @@ export function TryItShortener() {
           Shorten
         </Button>
       </form>
+
+      {/* Invisible (interaction-only) — issues a token without user friction;
+          the API requires it on anonymous link creation. */}
+      <Turnstile onVerify={setTurnstileToken} />
 
       {result && (
         <motion.div

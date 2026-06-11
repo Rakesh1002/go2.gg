@@ -14,7 +14,7 @@
 
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { bearer, magicLink, emailOTP } from "better-auth/plugins";
+import { bearer, emailOTP, magicLink } from "better-auth/plugins";
 import { drizzle } from "drizzle-orm/d1";
 
 // Re-export types
@@ -36,10 +36,7 @@ export interface JWTPayload {
  * Create a simple JWT token (for middleware verification)
  * Format: base64url(header).base64url(payload).base64url(signature)
  */
-export async function createJWT(
-  payload: Omit<JWTPayload, "iat">,
-  secret: string,
-): Promise<string> {
+export async function createJWT(payload: Omit<JWTPayload, "iat">, secret: string): Promise<string> {
   const header = { alg: "HS256", typ: "JWT" };
   const fullPayload = { ...payload, iat: Math.floor(Date.now() / 1000) };
 
@@ -59,13 +56,11 @@ export async function createJWT(
     encoder.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"],
+    ["sign"]
   );
 
   const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
-  const encodedSignature = btoa(
-    String.fromCharCode(...new Uint8Array(signature)),
-  )
+  const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
     .replace(/=/g, "")
     .replace(/\+/g, "-")
     .replace(/\//g, "_");
@@ -77,10 +72,7 @@ export async function createJWT(
  * Verify and decode a JWT token
  * Returns null if invalid or expired
  */
-export async function verifyJWT(
-  token: string,
-  secret: string,
-): Promise<JWTPayload | null> {
+export async function verifyJWT(token: string, secret: string): Promise<JWTPayload | null> {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
@@ -95,29 +87,20 @@ export async function verifyJWT(
       encoder.encode(secret),
       { name: "HMAC", hash: "SHA-256" },
       false,
-      ["verify"],
+      ["verify"]
     );
 
     // Decode signature (base64url to bytes)
     const signatureStr = encodedSignature.replace(/-/g, "+").replace(/_/g, "/");
-    const paddedSignature =
-      signatureStr + "=".repeat((4 - (signatureStr.length % 4)) % 4);
-    const signatureBytes = Uint8Array.from(atob(paddedSignature), (c) =>
-      c.charCodeAt(0),
-    );
+    const paddedSignature = signatureStr + "=".repeat((4 - (signatureStr.length % 4)) % 4);
+    const signatureBytes = Uint8Array.from(atob(paddedSignature), (c) => c.charCodeAt(0));
 
-    const valid = await crypto.subtle.verify(
-      "HMAC",
-      key,
-      signatureBytes,
-      encoder.encode(data),
-    );
+    const valid = await crypto.subtle.verify("HMAC", key, signatureBytes, encoder.encode(data));
     if (!valid) return null;
 
     // Decode payload
     const payloadStr = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
-    const paddedPayload =
-      payloadStr + "=".repeat((4 - (payloadStr.length % 4)) % 4);
+    const paddedPayload = payloadStr + "=".repeat((4 - (payloadStr.length % 4)) % 4);
     const payload = JSON.parse(atob(paddedPayload)) as JWTPayload;
 
     // Check expiration
@@ -154,28 +137,19 @@ function wrapD1ForDateSerialization(db: any): any {
     get(target, prop) {
       if (prop === "prepare") {
         return (sql: string) => {
-          // Log the SQL query for debugging
-          console.log("[D1 Debug] Preparing SQL:", sql.substring(0, 200));
-
           const statement = target.prepare(sql);
           return new Proxy(statement, {
             get(stmtTarget, stmtProp) {
               if (stmtProp === "bind") {
+                // Never log the bound params: Better Auth binds session
+                // tokens, OTP codes, and reset tokens through this path.
                 return (...args: unknown[]) => {
                   const serializedArgs = serializeDatesInParams(args);
-                  console.log(
-                    "[D1 Debug] Binding params:",
-                    JSON.stringify(serializedArgs).substring(0, 500),
-                  );
                   return stmtTarget.bind(...serializedArgs);
                 };
               }
               // Wrap run/all/first to catch errors
-              if (
-                stmtProp === "run" ||
-                stmtProp === "all" ||
-                stmtProp === "first"
-              ) {
+              if (stmtProp === "run" || stmtProp === "all" || stmtProp === "first") {
                 return async (...args: unknown[]) => {
                   try {
                     const result = await stmtTarget[stmtProp](...args);
@@ -248,7 +222,7 @@ export interface AuthConfig {
  */
 async function retryAsync<T>(
   fn: () => Promise<T>,
-  options: { attempts?: number; baseDelayMs?: number; name?: string } = {},
+  options: { attempts?: number; baseDelayMs?: number; name?: string } = {}
 ): Promise<T> {
   const { attempts = 3, baseDelayMs = 100, name = "operation" } = options;
   let lastError: unknown;
@@ -260,10 +234,7 @@ async function retryAsync<T>(
       lastError = error;
       if (i < attempts - 1) {
         const delay = baseDelayMs * Math.pow(2, i);
-        console.warn(
-          `[Auth] Retry ${i + 1}/${attempts} for ${name} after ${delay}ms:`,
-          error,
-        );
+        console.warn(`[Auth] Retry ${i + 1}/${attempts} for ${name} after ${delay}ms:`, error);
         await new Promise((r) => setTimeout(r, delay));
       }
     }
@@ -300,10 +271,7 @@ function generateSlug(input: string): string {
  * request handler because the DB binding is only available at request time.
  */
 export function createAuth(config: AuthConfig) {
-  const socialProviders: Record<
-    string,
-    { clientId: string; clientSecret: string }
-  > = {};
+  const socialProviders: Record<string, { clientId: string; clientSecret: string }> = {};
 
   if (config.oauth?.google) {
     socialProviders.google = config.oauth.google;
@@ -406,8 +374,7 @@ export function createAuth(config: AuthConfig) {
       : undefined,
 
     // Social OAuth providers
-    socialProviders:
-      Object.keys(socialProviders).length > 0 ? socialProviders : undefined,
+    socialProviders: Object.keys(socialProviders).length > 0 ? socialProviders : undefined,
 
     // Session configuration
     session: {
@@ -514,26 +481,11 @@ export function createAuth(config: AuthConfig) {
 
     // Database hooks for user lifecycle events
     databaseHooks: {
-      session: {
-        create: {
-          after: async (session) => {
-            // Log session creation for debugging
-            console.log("[Auth] Session created:", {
-              sessionId: session.id,
-              userId: session.userId,
-              expiresAt: session.expiresAt,
-            });
-          },
-        },
-      },
       user: {
         create: {
           after: async (user) => {
             try {
-              console.log(
-                "[Auth] Creating personal workspace for new user:",
-                user.id,
-              );
+              console.log("[Auth] Creating personal workspace for new user:", user.id);
 
               // Generate organization details
               const orgId = crypto.randomUUID();
@@ -555,11 +507,11 @@ export function createAuth(config: AuthConfig) {
                       `
                       INSERT INTO organizations (id, name, slug, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?)
-                    `,
+                    `
                     )
                     .bind(orgId, orgName, orgSlug, now, now)
                     .run(),
-                { name: "create-organization" },
+                { name: "create-organization" }
               );
 
               // Add user as owner with retry
@@ -571,11 +523,11 @@ export function createAuth(config: AuthConfig) {
                       `
                       INSERT INTO organization_members (id, organization_id, user_id, role, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?)
-                    `,
+                    `
                     )
                     .bind(memberId, orgId, user.id, "owner", now, now)
                     .run(),
-                { name: "create-membership" },
+                { name: "create-membership" }
               );
 
               // Create 14-day Pro trial subscription with retry
@@ -589,7 +541,7 @@ export function createAuth(config: AuthConfig) {
                       `
                       INSERT INTO subscriptions (id, organization_id, stripe_subscription_id, stripe_price_id, plan, status, current_period_start, current_period_end, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    `,
+                    `
                     )
                     .bind(
                       subscriptionId,
@@ -601,10 +553,10 @@ export function createAuth(config: AuthConfig) {
                       now,
                       trialEndStr,
                       now,
-                      now,
+                      now
                     )
                     .run(),
-                { name: "create-subscription" },
+                { name: "create-subscription" }
               );
 
               console.log("[Auth] Personal workspace created successfully:", {
@@ -621,9 +573,7 @@ export function createAuth(config: AuthConfig) {
 
                 // Check if campaign exists
                 const campaign = await config.d1Binding
-                  .prepare(
-                    `SELECT id FROM drip_campaigns WHERE id = ? AND is_active = 1`,
-                  )
+                  .prepare(`SELECT id FROM drip_campaigns WHERE id = ? AND is_active = 1`)
                   .bind(campaignId)
                   .first();
 
@@ -635,23 +585,21 @@ export function createAuth(config: AuthConfig) {
                       SELECT id, delay_minutes FROM drip_emails 
                       WHERE campaign_id = ? AND is_active = 1 
                       ORDER BY sequence ASC LIMIT 1
-                    `,
+                    `
                     )
                     .bind(campaignId)
                     .first()) as { id: string; delay_minutes: number } | null;
 
                   if (firstEmail) {
                     // Calculate when to send the first email
-                    const nextEmailAt = new Date(
-                      Date.now() + firstEmail.delay_minutes * 60 * 1000,
-                    );
+                    const nextEmailAt = new Date(Date.now() + firstEmail.delay_minutes * 60 * 1000);
 
                     await config.d1Binding
                       .prepare(
                         `
                         INSERT INTO user_drip_state (id, user_id, campaign_id, status, current_email_id, next_email_at, emails_sent, started_at, created_at, updated_at)
                         VALUES (?, ?, ?, 'active', ?, ?, 0, ?, ?, ?)
-                      `,
+                      `
                       )
                       .bind(
                         dripStateId,
@@ -661,35 +609,26 @@ export function createAuth(config: AuthConfig) {
                         nextEmailAt.toISOString(),
                         now,
                         now,
-                        now,
+                        now
                       )
                       .run();
 
-                    console.log(
-                      "[Auth] User enrolled in onboarding campaign:",
-                      user.id,
-                    );
+                    console.log("[Auth] User enrolled in onboarding campaign:", user.id);
                   }
                 }
               } catch (dripError) {
                 // Don't fail user creation if drip enrollment fails
-                console.error(
-                  "[Auth] Failed to enroll user in drip campaign:",
-                  dripError,
-                );
+                console.error("[Auth] Failed to enroll user in drip campaign:", dripError);
               }
             } catch (error) {
               // Log error with full details for debugging
               // Note: User creation still succeeds - the fallback in stats endpoint will fix this
-              console.error(
-                "[Auth] Failed to create personal workspace after retries:",
-                {
-                  userId: user.id,
-                  userEmail: user.email,
-                  error: error instanceof Error ? error.message : error,
-                  stack: error instanceof Error ? error.stack : undefined,
-                },
-              );
+              console.error("[Auth] Failed to create personal workspace after retries:", {
+                userId: user.id,
+                userEmail: user.email,
+                error: error instanceof Error ? error.message : error,
+                stack: error instanceof Error ? error.stack : undefined,
+              });
             }
           },
         },

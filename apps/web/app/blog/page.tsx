@@ -1,8 +1,8 @@
-import type { Metadata } from "next";
-import { getMetadata, siteConfig } from "@repo/config";
-import { getAllBlogPosts, getAllTags } from "@/lib/generated/blog";
-import { GeometricShapes } from "@/components/marketing/decorative/geometric-shapes";
 import { BlogList } from "@/components/blog";
+import { GeometricShapes } from "@/components/marketing/decorative/geometric-shapes";
+import { getAllBlogPosts, getAllTags } from "@/lib/generated/blog";
+import { getMetadata, siteConfig } from "@repo/config";
+import type { Metadata } from "next";
 
 export const metadata: Metadata = getMetadata({
   title: "Blog",
@@ -10,7 +10,15 @@ export const metadata: Metadata = getMetadata({
 });
 
 export default function BlogPage() {
-  const posts = getAllBlogPosts();
+  // The list only renders card metadata, but BlogList is a client component —
+  // whatever we pass gets serialized into the HTML twice (SSR + RSC flight).
+  // Blanking the post bodies keeps ~500 KB out of the page payload.
+  const posts = getAllBlogPosts().map((post) => ({
+    ...post,
+    content: "",
+    html: "",
+    headings: [],
+  }));
   const tags = getAllTags();
 
   return (

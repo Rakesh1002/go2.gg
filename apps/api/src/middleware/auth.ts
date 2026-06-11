@@ -4,13 +4,15 @@
  * Validates user sessions using Better Auth (edge-native).
  */
 
-import type { MiddlewareHandler } from "hono";
-import { drizzle } from "drizzle-orm/d1";
-import { eq, } from "drizzle-orm";
+import { type AuthSession, type AuthUser, createAuth } from "@repo/auth";
 import * as schema from "@repo/db";
-import { createAuth, type AuthUser, type AuthSession } from "@repo/auth";
+import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import type { MiddlewareHandler } from "hono";
 import type { Env } from "../bindings.js";
+import { getAuthSecret } from "../lib/auth-secret.js";
 import { getPlanForOrg } from "../lib/retention.js";
+import { isUserBanned } from "../lib/suspension.js";
 
 // drizzle is still used for API key auth below
 
@@ -33,7 +35,7 @@ function getBetterAuth(env: Env) {
     schema, // Pass the Drizzle schema for proper table mapping
     baseUrl: `${apiBaseUrl}/api/v1/auth`,
     appUrl: env.APP_URL || "http://localhost:3000",
-    secret: env.CSRF_SECRET || "development-secret-change-in-production-min-32-chars",
+    secret: getAuthSecret(env),
     trustedOrigins: [env.APP_URL, "http://localhost:3000", "http://localhost:8787"],
   });
 }
@@ -80,16 +82,32 @@ export function authMiddleware(): MiddlewareHandler<{ Bindings: Env }> {
         );
       }
 
-      // Fetch user's primary organization membership
+      // Fetch user's primary organization membership and ban flag together.
       const db = drizzle(c.env.DB, { schema });
-      const [membership] = await db
-        .select({
-          organizationId: schema.organizationMembers.organizationId,
-          role: schema.organizationMembers.role,
-        })
-        .from(schema.organizationMembers)
-        .where(eq(schema.organizationMembers.userId, session.user.id))
-        .limit(1);
+      const [[membership], banned] = await Promise.all([
+        db
+          .select({
+            organizationId: schema.organizationMembers.organizationId,
+            role: schema.organizationMembers.role,
+          })
+          .from(schema.organizationMembers)
+          .where(eq(schema.organizationMembers.userId, session.user.id))
+          .limit(1),
+        isUserBanned(db, session.user.id),
+      ]);
+
+      if (banned) {
+        return c.json(
+          {
+            success: false,
+            error: {
+              code: "ACCOUNT_SUSPENDED",
+              message: "This account has been suspended. Contact support@go2.gg.",
+            },
+          },
+          403
+        );
+      }
 
       const organizationId = membership?.organizationId ?? undefined;
       const plan = await getPlanForOrg(db, organizationId);
@@ -154,6 +172,12 @@ export function optionalAuthMiddleware(): MiddlewareHandler<{ Bindings: Env }> {
       if (session?.user) {
         // Fetch user's primary organization membership
         const db = drizzle(c.env.DB, { schema });
+
+        // Banned users are treated as anonymous on optional-auth routes.
+        if (await isUserBanned(db, session.user.id)) {
+          return next();
+        }
+
         const [membership] = await db
           .select({
             organizationId: schema.organizationMembers.organizationId,
@@ -239,13 +263,15 @@ export function apiKeyAuthMiddleware(): MiddlewareHandler<{ Bindings: Env }> {
         // the first member of the org (deterministic but not the actual
         // minter — this is what every key did before migration 0014).
         // Note: schema.users maps to the "user" table (Better Auth convention).
-        let member: {
-          userId: string;
-          email: string;
-          name: string | null;
-          image: string | null;
-          emailVerified: boolean | null;
-        } | undefined;
+        let member:
+          | {
+              userId: string;
+              email: string;
+              name: string | null;
+              image: string | null;
+              emailVerified: boolean | null;
+            }
+          | undefined;
 
         if (result.createdByUserId) {
           [member] = await db
@@ -277,14 +303,25 @@ export function apiKeyAuthMiddleware(): MiddlewareHandler<{ Bindings: Env }> {
         }
 
         if (member) {
+          if (await isUserBanned(db, member.userId)) {
+            return c.json(
+              {
+                success: false,
+                error: {
+                  code: "ACCOUNT_SUSPENDED",
+                  message: "This account has been suspended. Contact support@go2.gg.",
+                },
+              },
+              403
+            );
+          }
+
           // Look up the API-key user's role within the org so write-scoped
           // helpers (folder ACL, etc.) can authorize correctly.
           const [keyMembership] = await db
             .select({ role: schema.organizationMembers.role })
             .from(schema.organizationMembers)
-            .where(
-              eq(schema.organizationMembers.userId, member.userId)
-            )
+            .where(eq(schema.organizationMembers.userId, member.userId))
             .limit(1);
 
           const plan = await getPlanForOrg(db, result.organizationId);

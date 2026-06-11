@@ -19,19 +19,15 @@
  * We add custom routes here for additional functionality.
  */
 
-import { Hono } from "hono";
+import { type Auth, type EmailPayload, createAuth, createJWT } from "@repo/auth";
 import * as schema from "@repo/db";
-import {
-  createAuth,
-  createJWT,
-  type Auth,
-  type EmailPayload,
-} from "@repo/auth";
+import { Hono } from "hono";
 import type { Env } from "../bindings.js";
+import { getAuthSecret } from "../lib/auth-secret.js";
+import { sendEmail } from "../lib/email.js";
 // Rate limit middleware available if needed:
 // import { authRateLimitMiddleware, passwordResetRateLimitMiddleware } from "../middleware/rate-limit.js";
 import { turnstileMiddleware } from "../middleware/turnstile.js";
-import { sendEmail } from "../lib/email.js";
 
 // JWT cookie name and settings
 const JWT_COOKIE_NAME = "go2_jwt";
@@ -45,10 +41,9 @@ const auth = new Hono<{ Bindings: Env; Variables: { auth: Auth } }>();
 
 async function createJWTCookie(
   user: { id: string; email: string; name?: string },
-  env: Env,
+  env: Env
 ): Promise<string> {
-  const secret =
-    env.CSRF_SECRET || "development-secret-change-in-production-min-32-chars";
+  const secret = getAuthSecret(env);
   const jwtToken = await createJWT(
     {
       sub: user.id,
@@ -56,7 +51,7 @@ async function createJWTCookie(
       name: user.name || undefined,
       exp: Math.floor(Date.now() / 1000) + JWT_EXPIRY_DAYS * 24 * 60 * 60,
     },
-    secret,
+    secret
   );
 
   const isProduction = env.APP_ENV === "production";
@@ -101,8 +96,7 @@ function createBetterAuth(env: Env): Auth {
     baseUrl: `${apiBaseUrl}/api/v1/auth`,
     // Web app URL for redirects after auth (error pages, etc.)
     appUrl: env.APP_URL || "http://localhost:3000",
-    secret:
-      env.CSRF_SECRET || "development-secret-change-in-production-min-32-chars",
+    secret: getAuthSecret(env),
     trustedOrigins,
     oauth: {
       // Configure OAuth providers if credentials are set
@@ -129,9 +123,7 @@ function createBetterAuth(env: Env): Auth {
       try {
         await sendEmail(env, {
           to: payload.to,
-          template: payload.template as Parameters<
-            typeof sendEmail
-          >[1]["template"],
+          template: payload.template as Parameters<typeof sendEmail>[1]["template"],
           data: payload.data,
           subject: payload.subject,
         });
@@ -154,6 +146,60 @@ auth.use("*", async (c, next) => {
 });
 
 // -----------------------------------------------------------------------------
+// Signup bot gate
+// -----------------------------------------------------------------------------
+
+// Turnstile is required on email signup — scripted disposable-email signups
+// are how the spam account got in. Header-only on purpose: the Better Auth
+// handler below consumes the raw request body, so this gate must never read
+// it. The register form sends the token in cf-turnstile-response. No-op when
+// TURNSTILE_SECRET_KEY is unset (dev / self-host).
+auth.use("/sign-up/email", async (c, next) => {
+  if (c.req.method !== "POST" || !c.env.TURNSTILE_SECRET_KEY) {
+    return next();
+  }
+  const token = c.req.header("cf-turnstile-response");
+  if (!token) {
+    return c.json(
+      {
+        success: false,
+        error: { code: "TURNSTILE_REQUIRED", message: "Bot verification required" },
+      },
+      400
+    );
+  }
+  try {
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        secret: c.env.TURNSTILE_SECRET_KEY,
+        response: token,
+        remoteip: c.req.header("CF-Connecting-IP") ?? "",
+      }),
+    });
+    const result = (await res.json()) as { success: boolean };
+    if (!result.success) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: "TURNSTILE_FAILED",
+            message: "Bot verification failed. Please try again.",
+          },
+        },
+        400
+      );
+    }
+  } catch (error) {
+    // A Turnstile outage must not take the signup funnel down with it —
+    // fail open on infrastructure errors, closed only on explicit verdicts.
+    console.error("Turnstile verification error during signup:", error);
+  }
+  return next();
+});
+
+// -----------------------------------------------------------------------------
 // Better Auth Handler (handles all standard auth routes)
 // -----------------------------------------------------------------------------
 
@@ -173,8 +219,12 @@ auth.on(["GET", "POST"], "/*", async (c, next) => {
   const method = c.req.method;
   const cookies = c.req.header("cookie") || "";
 
-  // Special debug endpoint
+  // Special debug endpoint — reflects session cookie material, so it is
+  // dev-only. In production it 404s like any unknown auth route.
   if (path.endsWith("/debug-session")) {
+    if (c.env.APP_ENV === "production") {
+      return c.json({ error: "Not found" }, 404);
+    }
     const cookiePrefix = "go2.session_token=";
     const tokenStart = cookies.indexOf(cookiePrefix);
     let token = "";
@@ -235,10 +285,7 @@ auth.on(["GET", "POST"], "/*", async (c, next) => {
     }
 
     // Handle email/password sign-in and sign-up: set JWT cookie for successful auth
-    if (
-      (path.endsWith("/sign-in/email") || path.endsWith("/sign-up/email")) &&
-      response.ok
-    ) {
+    if ((path.endsWith("/sign-in/email") || path.endsWith("/sign-up/email")) && response.ok) {
       try {
         // Clone response to read the body
         const clonedResponse = response.clone();
@@ -248,9 +295,7 @@ auth.on(["GET", "POST"], "/*", async (c, next) => {
 
         if (body.user) {
           const jwtCookie = await createJWTCookie(body.user, c.env);
-          const _authType = path.endsWith("/sign-up/email")
-            ? "sign-up"
-            : "sign-in";
+          const _authType = path.endsWith("/sign-up/email") ? "sign-up" : "sign-in";
 
           // Create new response with JWT cookie added
           const newHeaders = new Headers(response.headers);
@@ -263,10 +308,7 @@ auth.on(["GET", "POST"], "/*", async (c, next) => {
           });
         }
       } catch (jwtError) {
-        console.error(
-          "[AUTH DEBUG] Failed to create JWT for email auth:",
-          jwtError,
-        );
+        console.error("[AUTH DEBUG] Failed to create JWT for email auth:", jwtError);
         // Continue with original response even if JWT creation fails
       }
     }
@@ -287,18 +329,12 @@ auth.on(["GET", "POST"], "/*", async (c, next) => {
             location,
           });
         } catch {
-          console.error(
-            `[AUTH DEBUG] OAuth failure on ${path}, raw location: ${location}`,
-          );
+          console.error(`[AUTH DEBUG] OAuth failure on ${path}, raw location: ${location}`);
         }
       }
 
       // If this is an OAuth callback redirecting to the app (not error), create JWT cookie
-      if (
-        path.includes("/callback/") &&
-        location &&
-        !location.includes("error=")
-      ) {
+      if (path.includes("/callback/") && location && !location.includes("error=")) {
         try {
           // Workers' Headers.get("set-cookie") returns only the FIRST header.
           // Better Auth typically sets several cookies on a successful callback
@@ -330,7 +366,7 @@ auth.on(["GET", "POST"], "/*", async (c, next) => {
           if (sessionToken) {
             // Look up session in database
             const sessionResult = await c.env.DB.prepare(
-              'SELECT s.*, u.email, u.name FROM "session" s JOIN "user" u ON s."userId" = u.id WHERE s.token = ? LIMIT 1',
+              'SELECT s.*, u.email, u.name FROM "session" s JOIN "user" u ON s."userId" = u.id WHERE s.token = ? LIMIT 1'
             )
               .bind(sessionToken)
               .first<{
@@ -347,7 +383,7 @@ auth.on(["GET", "POST"], "/*", async (c, next) => {
                   email: sessionResult.email,
                   name: sessionResult.name || undefined,
                 },
-                c.env,
+                c.env
               );
 
               // Create new response with JWT cookie added
@@ -359,12 +395,12 @@ auth.on(["GET", "POST"], "/*", async (c, next) => {
                 headers: newHeaders,
               });
             }
-              console.warn(
-                `[AUTH DEBUG] OAuth callback succeeded but session row not found for token prefix=${sessionToken.substring(0, 8)}... — JWT cookie not issued`,
-              );
+            console.warn(
+              `[AUTH DEBUG] OAuth callback succeeded but session row not found for token prefix=${sessionToken.substring(0, 8)}... — JWT cookie not issued`
+            );
           } else {
             console.warn(
-              "[AUTH DEBUG] OAuth callback succeeded but no session_token cookie in response — JWT cookie not issued",
+              "[AUTH DEBUG] OAuth callback succeeded but no session_token cookie in response — JWT cookie not issued"
             );
           }
         } catch (jwtError) {
@@ -381,9 +417,7 @@ auth.on(["GET", "POST"], "/*", async (c, next) => {
         const body = await clonedResponse.text();
         console.error(`[AUTH DEBUG] ${method} ${path} - Error body: ${body}`);
       } catch {
-        console.error(
-          `[AUTH DEBUG] ${method} ${path} - Could not read error body`,
-        );
+        console.error(`[AUTH DEBUG] ${method} ${path} - Could not read error body`);
       }
     }
 
@@ -448,7 +482,7 @@ auth.get("/me", async (c) => {
             message: "Not authenticated",
           },
         },
-        401,
+        401
       );
     }
 
@@ -478,7 +512,7 @@ auth.get("/me", async (c) => {
           message: "Failed to get session",
         },
       },
-      500,
+      500
     );
   }
 });
@@ -503,6 +537,11 @@ auth.post("/verify-turnstile", turnstileMiddleware(), async (c) => {
  */
 auth.get("/oauth-config", async (c) => {
   const env = c.env;
+  // Dev-only: enumerates provider config and cookie domains — useful while
+  // wiring OAuth apps, free recon for everyone else.
+  if (env.APP_ENV === "production") {
+    return c.json({ error: "Not found" }, 404);
+  }
   const apiBaseUrl = env.API_URL || "http://localhost:8787";
   const baseUrl = `${apiBaseUrl}/api/v1/auth`;
 

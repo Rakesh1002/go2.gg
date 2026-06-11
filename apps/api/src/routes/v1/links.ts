@@ -16,8 +16,9 @@ import { and, desc, eq, like, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { z } from "zod";
-import type { CachedLink, Env } from "../../bindings.js";
+import type { Env } from "../../bindings.js";
 import { generateSingleAISlug } from "../../lib/ai-slug.js";
+import { serializeCachedLink, syncLinkToKV } from "../../lib/cached-link.js";
 import { checkFolderAccess, refreshFolderLinkCounts } from "../../lib/folders.js";
 import { hashPassword } from "../../lib/password.js";
 import { captureEvent } from "../../lib/product-analytics.js";
@@ -32,7 +33,11 @@ import {
   paymentRequired,
 } from "../../lib/response.js";
 import { computePolicyExpiresAt, getPlanForOrg } from "../../lib/retention.js";
-import { checkDestinationThreat, shouldBlockOnCreate } from "../../lib/safe-browsing.js";
+import {
+  checkDestinationThreat,
+  shouldBlockOnCreate,
+  submitUrlScan,
+} from "../../lib/safe-browsing.js";
 import { checkSlugAbuse } from "../../lib/slug-abuse.js";
 import { generateSlug, isReservedSlug } from "../../lib/slug.js";
 import { checkLinkLimit, getOrgUsage } from "../../lib/usage.js";
@@ -239,6 +244,11 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
       "This destination is flagged as malicious by Google Safe Browsing or Cloudflare URL Scanner. We can't shorten it."
     );
   }
+  // Unknown = nobody has scanned this destination yet. Submit it so the
+  // rescan cron can upgrade the verdict and drop the safety interstitial.
+  if (threatVerdict.status === "unknown") {
+    c.executionCtx.waitUntil(submitUrlScan(c.env, input.destinationUrl));
+  }
 
   // Check if slug already exists for this domain
   const existing = await db
@@ -334,42 +344,9 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
     await refreshFolderLinkCounts(db, [input.folderId]);
   }
 
-  // Sync to KV for fast edge lookups
-  await syncLinkToKV(c.env.LINKS_KV, {
-    id,
-    destinationUrl: input.destinationUrl,
-    domain,
-    slug,
-    userId: user.id,
-    organizationId: user.organizationId,
-    geoTargets: input.geoTargets,
-    deviceTargets: input.deviceTargets,
-    passwordHash,
-    expiresAt: input.expiresAt,
-    policyExpiresAt: policyExpiresAt ?? undefined,
-    clickLimit: input.clickLimit,
-    iosUrl: input.iosUrl,
-    androidUrl: input.androidUrl,
-    // createdAt + threatStatus drive the interstitial gate in the resolver
-    createdAt: now,
-    threatStatus: threatVerdict.status,
-    // Retargeting pixels
-    trackingPixels: input.trackingPixels,
-    enablePixelTracking: input.enablePixelTracking,
-    requirePixelConsent: input.requirePixelConsent,
-    // Analytics configuration
-    trackAnalytics: input.trackAnalytics ?? true,
-    publicStats: input.publicStats ?? false,
-    trackConversion: input.trackConversion ?? false,
-    skipDeduplication: input.skipDeduplication ?? false,
-    agentId: input.agentId,
-    agentRunId: input.agentRunId,
-    agentActorId: input.agentActorId,
-    agentMetadata: input.agentMetadata,
-  });
-
-  // Fetch the created link
+  // Fetch the created link, then sync the full row to KV for edge lookups
   const result = await db.select().from(schema.links).where(eq(schema.links.id, id)).limit(1);
+  await syncLinkToKV(c.env.LINKS_KV, serializeCachedLink(result[0]));
 
   const formattedLink = formatLink(result[0], domain);
 
@@ -723,6 +700,9 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
         "The new destination is flagged as malicious by Google Safe Browsing or Cloudflare URL Scanner."
       );
     }
+    if (newThreatVerdict.status === "unknown") {
+      c.executionCtx.waitUntil(submitUrlScan(c.env, input.destinationUrl));
+    }
   }
 
   // Hash new password if provided
@@ -795,10 +775,14 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
     await refreshFolderLinkCounts(db, [existing[0].folderId, input.folderId]);
   }
 
-  // Update KV cache
-  const updatedLink = { ...existing[0], ...updateData };
+  // Re-fetch the full row and sync THAT to KV. The KV entry must come from
+  // the serializer, never a hand-merged partial — a partial that dropped
+  // isDisabled/policyExpiresAt re-enabled safety-disabled links at the edge.
+  const result = await db.select().from(schema.links).where(eq(schema.links.id, linkId)).limit(1);
+  const updatedRow = result[0];
+
   const oldKvKey = `${existing[0].domain}:${existing[0].slug}`;
-  const newKvKey = `${updatedLink.domain}:${updatedLink.slug}`;
+  const newKvKey = `${updatedRow.domain}:${updatedRow.slug}`;
 
   // Delete old key if slug or domain changed
   if (oldKvKey !== newKvKey) {
@@ -806,36 +790,8 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
   }
 
   // Only sync if not archived
-  if (!updatedLink.isArchived) {
-    await syncLinkToKV(c.env.LINKS_KV, {
-      id: linkId,
-      destinationUrl: updatedLink.destinationUrl!,
-      domain: updatedLink.domain!,
-      slug: updatedLink.slug!,
-      userId: updatedLink.userId ?? undefined,
-      organizationId: updatedLink.organizationId ?? undefined,
-      geoTargets: updatedLink.geoTargets ? JSON.parse(updatedLink.geoTargets) : undefined,
-      deviceTargets: updatedLink.deviceTargets ? JSON.parse(updatedLink.deviceTargets) : undefined,
-      passwordHash: updatedLink.passwordHash ?? undefined,
-      expiresAt: updatedLink.expiresAt ?? undefined,
-      clickLimit: updatedLink.clickLimit ?? undefined,
-      iosUrl: updatedLink.iosUrl ?? undefined,
-      androidUrl: updatedLink.androidUrl ?? undefined,
-      createdAt: updatedLink.createdAt ?? undefined,
-      threatStatus:
-        (updatedLink.threatStatus as "clean" | "flagged" | "unknown" | undefined) ?? undefined,
-      // Retargeting pixels
-      trackingPixels: updatedLink.trackingPixels
-        ? JSON.parse(updatedLink.trackingPixels)
-        : undefined,
-      enablePixelTracking: updatedLink.enablePixelTracking ?? undefined,
-      requirePixelConsent: updatedLink.requirePixelConsent ?? undefined,
-      // Analytics configuration
-      trackAnalytics: updatedLink.trackAnalytics ?? true,
-      publicStats: updatedLink.publicStats ?? false,
-      trackConversion: updatedLink.trackConversion ?? false,
-      skipDeduplication: updatedLink.skipDeduplication ?? false,
-    });
+  if (!updatedRow.isArchived) {
+    await syncLinkToKV(c.env.LINKS_KV, serializeCachedLink(updatedRow));
 
     // Reschedule expiry Workflow if expiresAt was changed (or newly set).
     // The Workflow's stable id is keyed on (linkId, expiresAt) so the new
@@ -844,13 +800,13 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
     if (
       input.expiresAt !== undefined &&
       input.expiresAt !== existing[0].expiresAt &&
-      updatedLink.expiresAt
+      updatedRow.expiresAt
     ) {
       const { scheduleLinkExpiry } = await import("../../workflows/link-expiry.js");
       c.executionCtx.waitUntil(
         scheduleLinkExpiry(c.env, {
           linkId: linkId,
-          expiresAt: updatedLink.expiresAt,
+          expiresAt: updatedRow.expiresAt,
         })
       );
     }
@@ -859,10 +815,7 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
     await c.env.LINKS_KV.delete(newKvKey);
   }
 
-  // Fetch updated link
-  const result = await db.select().from(schema.links).where(eq(schema.links.id, linkId)).limit(1);
-
-  const formattedLink = formatLink(result[0], c.env.DEFAULT_DOMAIN);
+  const formattedLink = formatLink(updatedRow, c.env.DEFAULT_DOMAIN);
 
   // Dispatch webhook event (non-blocking)
   c.executionCtx.waitUntil(
@@ -1111,18 +1064,6 @@ links.get("/:id/analytics", async (c) => {
 // -----------------------------------------------------------------------------
 // Helper Functions
 // -----------------------------------------------------------------------------
-
-/**
- * Sync link to KV for fast edge lookups.
- *
- * No TTL — D1 is the source of truth and we explicitly delete the KV entry
- * on archive/expiry/policy-evict. A TTL caused the entire cache to silently
- * age out at 30 days, breaking redirects for older links until next write.
- */
-async function syncLinkToKV(kv: KVNamespace, link: CachedLink) {
-  const key = `${link.domain}:${link.slug}`;
-  await kv.put(key, JSON.stringify(link));
-}
 
 /**
  * Format link for API response

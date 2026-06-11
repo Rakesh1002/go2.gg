@@ -7,6 +7,10 @@ compatibility_flags = ["nodejs_compat_v2"]
 # Disable keepNames to fix "__name is not defined" error with Better Auth
 keep_names = false
 
+# The unminified bundle is ~7.5MB; parse/eval time at isolate start scales
+# with raw bytes, so minification is worth several hundred ms on cold clicks.
+minify = true
+
 # Workers Logs — backup tail buffer in the CF dashboard.
 # Filtered structured events still tunnel to Axiom via lib/axiom.ts at 100%,
 # so the tail buffer is sampled to cap Workers Logs spend (20M included/mo,

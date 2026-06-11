@@ -141,6 +141,13 @@
       "when": 1781136000000,
       "tag": "0019_drop_unused_click_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1781222400000,
+      "tag": "0020_composite_click_indexes",
+      "breakpoints": true
     }
   ]
 }

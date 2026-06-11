@@ -41,7 +41,12 @@ const PRICE_TO_PLAN: Record<string, string> = {
 
 type SubscriptionPlan = "free" | "pro" | "business" | "scale" | "enterprise";
 
-function getPlanFromPriceId(priceId: string): SubscriptionPlan {
+/**
+ * Returns null for unrecognized price IDs. The previous default-to-"pro"
+ * fallback meant any misconfigured price silently granted a paid plan;
+ * callers must treat null as "log loudly and change nothing."
+ */
+function getPlanFromPriceId(priceId: string): SubscriptionPlan | null {
   const plan = PRICE_TO_PLAN[priceId];
   if (plan === "pro" || plan === "business" || plan === "scale" || plan === "enterprise") {
     return plan;
@@ -56,14 +61,7 @@ function getPlanFromPriceId(priceId: string): SubscriptionPlan {
     return configPlan.id;
   }
 
-  // Fallback: try to extract plan from price ID pattern
-  const lower = priceId.toLowerCase();
-  if (lower.includes("enterprise")) return "enterprise";
-  if (lower.includes("scale")) return "scale";
-  if (lower.includes("business")) return "business";
-  if (lower.includes("pro")) return "pro";
-
-  return "pro"; // Default fallback
+  return null;
 }
 
 const stripeWebhooks = new Hono<{ Bindings: Env }>();
@@ -89,6 +87,14 @@ stripeWebhooks.post("/", async (c) => {
     return c.json({ error: "Invalid signature" }, 400);
   }
 
+  // Idempotency: Stripe retries on any non-2xx, and several handlers have
+  // side effects (queued emails, affiliate credits) that must not re-run.
+  // Processed event IDs are remembered for 72h — Stripe's retry horizon.
+  const dedupeKey = `stripe-event:${event.id}`;
+  if (await c.env.KV_CONFIG.get(dedupeKey)) {
+    return c.json({ received: true, duplicate: true });
+  }
+
   const db = drizzle(c.env.DB, { schema });
   const repos = createD1Repositories(db);
 
@@ -106,13 +112,23 @@ stripeWebhooks.post("/", async (c) => {
     case "customer.subscription.created":
     case "customer.subscription.updated": {
       const subscription = event.data.object as Stripe.Subscription;
+      if (await isStaleSubscriptionEvent(c.env, subscription.id, event.created)) {
+        // Subscription events carry no ordering guarantee — a retried
+        // "updated" landing after "deleted" would resurrect a canceled plan.
+        break;
+      }
       await handleSubscriptionUpdated(repos, subscription, c.env);
+      await recordSubscriptionEventClock(c.env, subscription.id, event.created);
       break;
     }
 
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
+      if (await isStaleSubscriptionEvent(c.env, subscription.id, event.created)) {
+        break;
+      }
       await handleSubscriptionDeleted(repos, subscription, c.env);
+      await recordSubscriptionEventClock(c.env, subscription.id, event.created);
       break;
     }
 
@@ -151,8 +167,38 @@ stripeWebhooks.post("/", async (c) => {
     default:
   }
 
+  // Marked processed only on success: a thrown handler bubbles to the error
+  // handler (non-2xx), Stripe retries, and the absent dedupe key lets the
+  // retry run the handlers again.
+  c.executionCtx.waitUntil(c.env.KV_CONFIG.put(dedupeKey, "1", { expirationTtl: 60 * 60 * 72 }));
+
   return c.json({ received: true });
 });
+
+// Per-subscription event clock (Stripe's event.created, unix seconds) used
+// to drop out-of-order deliveries. Strict less-than: equal timestamps pass,
+// since exact replays are already caught by the event.id dedupe above.
+const SUB_CLOCK_PREFIX = "stripe-sub-clock:";
+
+async function isStaleSubscriptionEvent(
+  env: Env,
+  subscriptionId: string,
+  eventCreated: number
+): Promise<boolean> {
+  const stored = await env.KV_CONFIG.get(`${SUB_CLOCK_PREFIX}${subscriptionId}`);
+  return stored !== null && eventCreated < Number.parseInt(stored, 10);
+}
+
+async function recordSubscriptionEventClock(
+  env: Env,
+  subscriptionId: string,
+  eventCreated: number
+): Promise<void> {
+  const key = `${SUB_CLOCK_PREFIX}${subscriptionId}`;
+  const stored = await env.KV_CONFIG.get(key);
+  const max = stored ? Math.max(eventCreated, Number.parseInt(stored, 10)) : eventCreated;
+  await env.KV_CONFIG.put(key, String(max), { expirationTtl: 60 * 60 * 24 * 30 });
+}
 
 // -----------------------------------------------------------------------------
 // Event Handlers
@@ -258,6 +304,19 @@ async function handleSubscriptionUpdated(
   );
   const priceId = flatItem?.price.id ?? subscription.items.data[0]?.price.id ?? "";
   const plan = getPlanFromPriceId(priceId);
+  if (plan === null) {
+    // An unrecognized price must never silently grant a plan. Log loudly,
+    // change nothing, and return 200 (a retry won't resolve a config gap).
+    console.error(`Stripe webhook: unknown price ID ${priceId} on sub ${subscription.id}`);
+    const { logEvent } = await import("../../lib/axiom.js");
+    await logEvent(
+      env,
+      "stripe.unknown_price",
+      { priceId, subscriptionId: subscription.id, customerId: String(subscription.customer) },
+      "error"
+    ).catch(() => undefined);
+    return;
+  }
 
   const subData = {
     stripeSubscriptionId: subscription.id,

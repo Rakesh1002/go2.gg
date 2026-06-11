@@ -1,13 +1,10 @@
-"use client";
-
-import Link from "next/link";
-import { motion } from "framer-motion";
-import { ArrowRight, Bot, Sparkles, Terminal } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { CopyButton } from "@/components/ui/copy-button";
 import { GeometricShapes } from "@/components/marketing/decorative/geometric-shapes";
 import { TryItShortener } from "@/components/marketing/sections/try-it-shortener";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
+import { ArrowRight, Bot, Sparkles, Terminal } from "lucide-react";
+import Link from "next/link";
 
 interface AgentHeroProps {
   variant?: "homepage" | "agents-page";
@@ -35,8 +32,7 @@ const COPY: Record<NonNullable<AgentHeroProps["variant"]>, HeroCopy> = {
     badge: "Open source · Edge-native · Free to start",
     headline: (
       <>
-        Short links for your team —{" "}
-        <span className="text-gradient-warm">and your AI.</span>
+        Short links for your team — <span className="text-gradient-warm">and your AI.</span>
       </>
     ),
     sub: "Branded URLs on your domain, with QR, link-in-bio, and retargeting pixels. With AI integration your agent can install in five minutes.",
@@ -47,8 +43,7 @@ const COPY: Record<NonNullable<AgentHeroProps["variant"]>, HeroCopy> = {
     badge: "MCP · REST · 16 tools · open source",
     headline: (
       <>
-        Branded short links your{" "}
-        <span className="text-gradient-warm">AI agent can ship.</span>
+        Branded short links your <span className="text-gradient-warm">AI agent can ship.</span>
       </>
     ),
     sub: "One MCP install, every agent client. Track each link your agent creates back to the run, prompt, and tool call that produced it — same workspace, same domains, same analytics as the rest of your team.",
@@ -76,30 +71,18 @@ export function AgentHero({ variant = "agents-page" }: AgentHeroProps) {
               {copy.badge}
             </Badge>
 
-            <motion.h1
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-              className="break-words font-bold text-4xl text-[var(--marketing-text)] leading-[1.05] tracking-tight sm:text-5xl md:text-6xl lg:text-7xl"
-            >
+            {/* CSS entrance animations, not framer-motion: motion components
+                SSR the headline at opacity 0 and only reveal it after the full
+                JS bundle hydrates, which made LCP hydration-bound. */}
+            <h1 className="animate-fade-in-up break-words font-bold text-4xl text-[var(--marketing-text)] leading-[1.05] tracking-tight sm:text-5xl md:text-6xl lg:text-7xl">
               {copy.headline}
-            </motion.h1>
+            </h1>
 
-            <motion.p
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.1 }}
-              className="mt-6 max-w-xl text-[var(--marketing-text-muted)] text-lg leading-relaxed sm:text-xl"
-            >
+            <p className="stagger-1 mt-6 max-w-xl animate-fade-in-up text-[var(--marketing-text-muted)] text-lg leading-relaxed sm:text-xl">
               {copy.sub}
-            </motion.p>
+            </p>
 
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-              className="mt-10 flex flex-wrap items-center gap-4"
-            >
+            <div className="stagger-2 mt-10 flex animate-fade-in-up flex-wrap items-center gap-4">
               <Link href={copy.primaryCta.href}>
                 <Button
                   size="lg"
@@ -118,25 +101,15 @@ export function AgentHero({ variant = "agents-page" }: AgentHeroProps) {
                   {copy.secondaryCta.text}
                 </Button>
               </Link>
-            </motion.div>
+            </div>
 
-            <motion.p
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.5, delay: 0.4 }}
-              className="mt-6 text-[var(--marketing-text-muted)] text-sm"
-            >
+            <p className="stagger-4 mt-6 animate-fade-in-up text-[var(--marketing-text-muted)] text-sm">
               Open source · Built on Cloudflare · No credit card to start
-            </motion.p>
+            </p>
           </div>
 
           {/* Right: variant-specific call-to-action card */}
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="relative mt-8 min-w-0 lg:mt-0"
-          >
+          <div className="stagger-2 relative mt-8 min-w-0 animate-fade-in-up lg:mt-0">
             {variant === "homepage" ? (
               <div className="relative overflow-hidden rounded-2xl border border-[var(--marketing-border)] bg-[var(--marketing-bg-elevated)] p-6 shadow-2xl shadow-[var(--marketing-accent)]/5 sm:p-7 lg:rounded-[1.5rem]">
                 <div className="-top-24 -right-24 pointer-events-none absolute h-56 w-56 rounded-full bg-[var(--marketing-accent)]/15 blur-3xl" />
@@ -152,7 +125,8 @@ export function AgentHero({ variant = "agents-page" }: AgentHeroProps) {
                     Paste a URL. Get a real go2.gg link.
                   </h3>
                   <p className="mt-2 text-[var(--marketing-text-muted)] text-sm">
-                    Live demo. Real shortener. Sign up to keep the link, see clicks, and add your custom domain.
+                    Live demo. Real shortener. Sign up to keep the link, see clicks, and add your
+                    custom domain.
                   </p>
                   <TryItShortener />
                 </div>
@@ -194,7 +168,7 @@ export function AgentHero({ variant = "agents-page" }: AgentHeroProps) {
                 </div>
               </div>
             )}
-          </motion.div>
+          </div>
         </div>
       </div>
     </section>

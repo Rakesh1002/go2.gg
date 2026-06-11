@@ -8,25 +8,33 @@
  * - POST /bulk/archive - Bulk archive links
  */
 
-import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
-import { drizzle } from "drizzle-orm/d1";
-import { eq, and, inArray, } from "drizzle-orm";
 import * as schema from "@repo/db";
-import type { Env, CachedLink } from "../../bindings.js";
-import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
-import { ok, created, badRequest, forbidden, notFound, paymentRequired } from "../../lib/response.js";
-import { generateSlug, isReservedSlug } from "../../lib/slug.js";
-import { getOrgUsage, checkLinkLimit } from "../../lib/usage.js";
-import { checkFolderAccess, refreshFolderLinkCounts } from "../../lib/folders.js";
+import { and, eq, inArray } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import { Hono } from "hono";
+import { z } from "zod";
+import type { Env } from "../../bindings.js";
+import { serializeCachedLink, syncLinkToKV } from "../../lib/cached-link.js";
 import {
+  type ImportFormat,
+  detectImportFormat,
+  generateCSV,
   parseCSV,
   processImport,
-  generateCSV,
-  detectImportFormat,
-  type ImportFormat,
 } from "../../lib/csv.js";
+import { checkFolderAccess, refreshFolderLinkCounts } from "../../lib/folders.js";
+import {
+  badRequest,
+  created,
+  forbidden,
+  notFound,
+  ok,
+  paymentRequired,
+} from "../../lib/response.js";
+import { generateSlug, isReservedSlug } from "../../lib/slug.js";
+import { checkLinkLimit, getOrgUsage } from "../../lib/usage.js";
+import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
 
 const bulk = new Hono<{ Bindings: Env }>();
 
@@ -174,7 +182,7 @@ bulk.post("/import", zValidator("query", importQuerySchema), async (c) => {
     const id = crypto.randomUUID();
 
     try {
-      const newLink: schema.NewLink = {
+      const newLink = {
         id,
         userId: user.id,
         organizationId: user.organizationId,
@@ -201,27 +209,15 @@ bulk.post("/import", zValidator("query", importQuerySchema), async (c) => {
         ogImage: link.ogImage,
         createdAt: now,
         updatedAt: now,
-      };
+      } satisfies schema.NewLink;
 
       await db.insert(schema.links).values(newLink);
 
-      // Sync to KV
-      const kvKey = `${domain}:${slug}`;
-      const cachedLink: CachedLink = {
-        id,
-        destinationUrl: link.destinationUrl,
-        domain,
-        slug,
-        geoTargets: link.geoTargets,
-        deviceTargets: link.deviceTargets,
-        expiresAt: link.expiresAt,
-        clickLimit: link.clickLimit,
-        iosUrl: link.iosUrl,
-        androidUrl: link.androidUrl,
-      };
-      await c.env.LINKS_KV.put(kvKey, JSON.stringify(cachedLink), {
-        expirationTtl: 60 * 60 * 24 * 30,
-      });
+      // Sync the full row shape to KV — no TTL, and with owner fields so
+      // bulk-imported clicks are billed and pruned like any other link's.
+      // The old hand-rolled entry omitted userId/orgId and aged out after
+      // 30 days, 404ing until the D1 fallback rehydrated it.
+      await syncLinkToKV(c.env.LINKS_KV, serializeCachedLink(newLink));
 
       createdLinks.push({
         id,
@@ -420,23 +416,9 @@ bulk.post("/archive", zValidator("json", bulkArchiveSchema), async (c) => {
     if (archive) {
       await c.env.LINKS_KV.delete(kvKey);
     } else {
-      // Re-add to KV
-      const cachedLink: CachedLink = {
-        id: link.id,
-        destinationUrl: link.destinationUrl,
-        domain: link.domain,
-        slug: link.slug,
-        geoTargets: link.geoTargets ? JSON.parse(link.geoTargets) : undefined,
-        deviceTargets: link.deviceTargets ? JSON.parse(link.deviceTargets) : undefined,
-        passwordHash: link.passwordHash ?? undefined,
-        expiresAt: link.expiresAt ?? undefined,
-        clickLimit: link.clickLimit ?? undefined,
-        iosUrl: link.iosUrl ?? undefined,
-        androidUrl: link.androidUrl ?? undefined,
-      };
-      await c.env.LINKS_KV.put(kvKey, JSON.stringify(cachedLink), {
-        expirationTtl: 60 * 60 * 24 * 30,
-      });
+      // Re-add the full row to KV. The row was selected before the archive
+      // flag was flipped in D1, so stamp the new value explicitly.
+      await syncLinkToKV(c.env.LINKS_KV, serializeCachedLink({ ...link, isArchived: archive }));
     }
   }
 

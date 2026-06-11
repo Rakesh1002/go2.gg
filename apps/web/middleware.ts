@@ -62,9 +62,17 @@ function clientPrefersMarkdown(accept: string | null): boolean {
 // JWT cookie name (must match API)
 const JWT_COOKIE_NAME = "go2_jwt";
 
-// Auth secret (must match API's CSRF_SECRET)
-const AUTH_SECRET =
-  process.env.AUTH_SECRET || "development-secret-change-in-production-min-32-chars";
+// Auth secret (must match API's CSRF_SECRET). Fail closed: the old
+// hardcoded fallback ships in the public repo — anyone running prod without
+// the secret set would accept attacker-minted JWTs for any user id.
+const AUTH_SECRET = (() => {
+  const secret = process.env.AUTH_SECRET;
+  if (secret && secret.length >= 32) return secret;
+  if (process.env.NODE_ENV !== "production") {
+    return "development-secret-change-in-production-min-32-chars";
+  }
+  throw new Error("AUTH_SECRET must be set to at least 32 characters in production");
+})();
 
 /**
  * JWT payload structure
@@ -100,32 +108,13 @@ function parseCookies(cookieHeader: string): Record<string, string> {
  */
 async function verifyJWT(token: string, secret: string): Promise<JWTPayload | null> {
   try {
-    // Debug: log token and secret info
-    console.log("[Middleware] JWT token (first 50 chars):", token.substring(0, 50));
-    console.log("[Middleware] Secret (first 10 chars):", secret.substring(0, 10));
-    console.log("[Middleware] Secret length:", secret.length);
-
     const parts = token.split(".");
     if (parts.length !== 3) {
-      console.log("[Middleware] JWT doesn't have 3 parts");
       return null;
     }
 
     const [encodedHeader, encodedPayload, encodedSignature] = parts;
     const data = `${encodedHeader}.${encodedPayload}`;
-
-    // Debug: decode and log payload before verification
-    try {
-      const payloadStr = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
-      const paddedPayload = payloadStr + "=".repeat((4 - (payloadStr.length % 4)) % 4);
-      const decodedPayload = JSON.parse(atob(paddedPayload));
-      console.log(
-        "[Middleware] JWT payload (pre-verify):",
-        JSON.stringify(decodedPayload).substring(0, 100)
-      );
-    } catch (e) {
-      console.log("[Middleware] Failed to decode payload for debug:", e);
-    }
 
     // Verify signature using Web Crypto API
     const encoder = new TextEncoder();
@@ -142,11 +131,8 @@ async function verifyJWT(token: string, secret: string): Promise<JWTPayload | nu
     const paddedSignature = signatureStr + "=".repeat((4 - (signatureStr.length % 4)) % 4);
     const signatureBytes = Uint8Array.from(atob(paddedSignature), (c) => c.charCodeAt(0));
 
-    console.log("[Middleware] Signature bytes length:", signatureBytes.length);
-
     const valid = await crypto.subtle.verify("HMAC", key, signatureBytes, encoder.encode(data));
     if (!valid) {
-      console.log("[Middleware] JWT signature verification failed - signatures don't match");
       return null;
     }
 
@@ -157,7 +143,6 @@ async function verifyJWT(token: string, secret: string): Promise<JWTPayload | nu
 
     // Check expiration
     if (payload.exp < Math.floor(Date.now() / 1000)) {
-      console.log("[Middleware] JWT expired at:", new Date(payload.exp * 1000).toISOString());
       return null;
     }
 
@@ -236,13 +221,10 @@ export async function middleware(request: NextRequest) {
 
   // Validate session via JWT (stateless, no API call needed)
   let hasSession = false;
-  let userEmail: string | null = null;
 
   try {
     const cookieHeader = request.headers.get("cookie") || "";
     const cookies = parseCookies(cookieHeader);
-
-    console.log("[Middleware] Checking session for:", pathname);
 
     // Check for JWT cookie
     const jwtToken = cookies[JWT_COOKIE_NAME];
@@ -253,29 +235,12 @@ export async function middleware(request: NextRequest) {
 
       if (payload) {
         hasSession = true;
-        userEmail = payload.email;
-        console.log("[Middleware] JWT valid for user:", payload.email);
-      } else {
-        console.log("[Middleware] JWT invalid or expired");
       }
-    } else {
-      console.log("[Middleware] No JWT cookie found");
     }
   } catch (error) {
     console.warn("[Middleware] Session check failed:", error);
     hasSession = false;
   }
-
-  console.log(
-    "[Middleware] hasSession:",
-    hasSession,
-    "isProtected:",
-    isProtectedRoute,
-    "isAuth:",
-    isAuthRoute,
-    "user:",
-    userEmail
-  );
 
   // Redirect authenticated users away from auth routes
   if (hasSession && isAuthRoute) {

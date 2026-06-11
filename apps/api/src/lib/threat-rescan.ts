@@ -30,7 +30,7 @@ import { and, asc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
  */
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import type { Env } from "../bindings.js";
-import { checkDestinationThreat } from "./safe-browsing.js";
+import { checkDestinationThreat, submitUrlScan } from "./safe-browsing.js";
 
 export interface RescanResult {
   scanned: number;
@@ -143,6 +143,12 @@ async function processOne(
       updatedAt: now,
     })
     .where(eq(schema.links.id, link.id));
+
+  // Still unknown = URL Scanner has never seen this destination. Submit a
+  // scan so the next pass can read a real verdict and clear the interstitial.
+  if (verdict.status === "unknown") {
+    await submitUrlScan(env, link.destinationUrl);
+  }
 }
 
 export async function rescanLinkBatch(

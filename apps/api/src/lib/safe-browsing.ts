@@ -307,12 +307,12 @@ export async function checkDestinationThreat(env: Env, url: string): Promise<Thr
   if (sb && scanner) {
     return { status: "clean", verdict: "", scanners };
   }
-  // At least one ran and was clean — accept it. We can't get a stronger
-  // signal without paying the URL Scanner submit cost on the hot path.
-  if (sb || scanner) {
-    return { status: "clean", verdict: "", scanners };
-  }
-
+  // Only one scanner answered. "Not on Google's list" alone is NOT clean —
+  // the list lags real-world phishing by hours, and URL Scanner returning
+  // null usually means nobody has ever scanned the destination (the exact
+  // profile of a freshly-registered phishing domain). "unknown" keeps the
+  // safety interstitial engaged until a real scan upgrades the verdict;
+  // callers should submitUrlScan() so the rescan cron can do that.
   return { status: "unknown", verdict: "", scanners };
 }
 
@@ -323,4 +323,43 @@ export async function checkDestinationThreat(env: Env, url: string): Promise<Thr
  */
 export function shouldBlockOnCreate(verdict: ThreatVerdict): boolean {
   return verdict.status === "flagged";
+}
+
+/**
+ * Submit a destination to Cloudflare URL Scanner. Fire-and-forget from a
+ * waitUntil: the scan takes tens of seconds, so nothing reads the result
+ * inline — the 4h rescan cron's search() picks up the verdict and upgrades
+ * "unknown" links to "clean" (clearing the interstitial) or flags them.
+ * Without this, a never-scanned destination stays "unknown" forever.
+ */
+export async function submitUrlScan(env: Env, url: string): Promise<void> {
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+  const token = env.CLOUDFLARE_URLSCANNER_TOKEN;
+  if (!accountId || !token) {
+    return;
+  }
+  try {
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/urlscanner/v2/scan`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        // Unlisted: user destinations shouldn't show up in the public scan feed.
+        body: JSON.stringify({ url, visibility: "Unlisted" }),
+        signal: AbortSignal.timeout(URL_SCANNER_TIMEOUT_MS),
+      }
+    );
+    // 409 = already scanned recently — exactly what we want, not an error.
+    if (!res.ok && res.status !== 409) {
+      await logFailOpen(env, "url_scanner", "http_error", { url, status: res.status });
+    }
+  } catch (err) {
+    await logFailOpen(env, "url_scanner", "exception", {
+      url,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
 }

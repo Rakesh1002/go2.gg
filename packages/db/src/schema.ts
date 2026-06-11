@@ -834,10 +834,15 @@ export const clicks = sqliteTable(
   // linkId/org + timestamp first — SQLite uses a single index per table
   // access, so standalone dimension indexes were never chosen by those query
   // plans (see migration 0019 and docs/product/cost-benefit-analysis.md).
+  // Scope indexes are composite with timestamp (migration 0020): every hot
+  // aggregation filters scope + time window (usage metering, retention
+  // pruning, analytics), and (scope, timestamp) makes those range scans
+  // index-only instead of fetching every retained row per scope. Composites
+  // still serve scope-only predicates via the leftmost prefix.
   (table) => [
-    index("clicks_link_idx").on(table.linkId),
-    index("clicks_user_idx").on(table.userId),
-    index("clicks_org_idx").on(table.organizationId),
+    index("clicks_link_ts_idx").on(table.linkId, table.timestamp),
+    index("clicks_user_ts_idx").on(table.userId, table.timestamp),
+    index("clicks_org_ts_idx").on(table.organizationId, table.timestamp),
     index("clicks_timestamp_idx").on(table.timestamp),
     index("clicks_agent_id_idx").on(table.agentId),
     index("clicks_agent_run_id_idx").on(table.agentRunId),

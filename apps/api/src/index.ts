@@ -14,7 +14,6 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { prettyJSON } from "hono/pretty-json";
 import { requestId } from "hono/request-id";
-import { secureHeaders } from "hono/secure-headers";
 import { timing } from "hono/timing";
 import type { CachedLink, Env } from "./bindings.js";
 
@@ -69,6 +68,12 @@ import { generatePixelTrackingPage } from "./lib/pixel-tracking.js";
 // Axiom logger (for the pixel-interstitial-served event)
 import { logEvent as logToAxiom } from "./lib/axiom.js";
 
+// D1 row → CachedLink mapping shared by every KV write site
+import { serializeCachedLink } from "./lib/cached-link.js";
+
+// OG preview page for link-preview crawlers (custom-OG links only)
+import { isLinkPreviewBot, renderOgPreviewPage } from "./lib/og-preview.js";
+
 // Link cloaking
 import { generateCloakedPage } from "./lib/cloaked-page.js";
 
@@ -98,112 +103,13 @@ app.use("*", requestId());
 // Timing headers
 app.use("*", timing());
 
-// CORS
-app.use(
-  "*",
-  cors({
-    origin: (origin, c) => {
-      const appUrl = c.env.APP_URL;
-      const allowedOrigins = [
-        // Development
-        "http://localhost:3000",
-        "http://localhost:8787",
-        // Production - explicit origins
-        "https://go2.gg",
-        "https://www.go2.gg",
-        // From env (for staging, etc.)
-        appUrl,
-        appUrl?.replace("://", "://www."),
-      ].filter(Boolean) as string[];
-
-      // Check if origin is in allowed list
-      if (origin && allowedOrigins.includes(origin)) {
-        return origin;
-      }
-
-      // For requests without Origin header (like server-to-server), allow
-      if (!origin) {
-        return "*";
-      }
-
-      return "";
-    },
-    // `rsc` + the `next-router-*` headers are sent by Next.js's RSC fetches
-    // when /openapi.json redirects from go2.gg → api.go2.gg. Without them
-    // here the preflight is rejected.
-    allowHeaders: [
-      "Content-Type",
-      "Authorization",
-      "X-Request-ID",
-      "X-CSRF-Token",
-      "RSC",
-      "Next-Router-State-Tree",
-      "Next-Router-Prefetch",
-      "Next-Url",
-    ],
-    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    credentials: true,
-    maxAge: 86400,
-  })
-);
-
-// Security headers
-// NOTE: secureHeaders() defaults Cross-Origin-Resource-Policy to "same-origin",
-// which blocks browser delivery of api.go2.gg responses to go2.gg pages —
-// CORS preflight passes but the actual response is dropped, surfacing as
-// "Failed to fetch". This API is meant to be called cross-origin, so we set
-// CORP to "cross-origin" and skip COOP/COEP (only relevant for navigations).
-app.use(
-  "*",
-  secureHeaders({
-    contentSecurityPolicy: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'"],
-      frameAncestors: ["'none'"],
-    },
-    xFrameOptions: "DENY",
-    xContentTypeOptions: "nosniff",
-    referrerPolicy: "strict-origin-when-cross-origin",
-    crossOriginResourcePolicy: "cross-origin",
-    crossOriginOpenerPolicy: false,
-    crossOriginEmbedderPolicy: false,
-  })
-);
-
-// Pretty JSON in development
-app.use("*", prettyJSON());
-
-// Request logging
-app.use("*", loggerMiddleware());
-
-// Demo mode write-guard (no-op unless DEMO_MODE=true)
-app.use("*", demoModeMiddleware());
-
-// Global error handler
-app.onError(errorHandler);
-
 // -----------------------------------------------------------------------------
-// MCP host shim — mcp.go2.gg requests are routed to the /mcp transport
-// regardless of incoming path. Lets remote clients (Claude.ai, ChatGPT,
-// Perplexity) point at https://mcp.go2.gg/mcp without the api.go2.gg prefix
-// while keeping a single Worker behind both hostnames.
-// -----------------------------------------------------------------------------
-
-const MCP_HOSTS = new Set(["mcp.go2.gg", "mcp.staging.go2.gg"]);
-
-app.use("*", async (c, next) => {
-  const host = c.req.header("host")?.split(":")[0]?.toLowerCase();
-  if (host && MCP_HOSTS.has(host)) {
-    const { mcp: mcpRouter } = await import("./routes/mcp/index.js");
-    return mcpRouter.fetch(c.req.raw, c.env, c.executionCtx);
-  }
-  await next();
-});
-
-// -----------------------------------------------------------------------------
+// NOTE: the apex shim below is registered BEFORE cors/secureHeaders on
+// purpose. Those middlewares stamp the API's strict CSP (script-src 'self')
+// onto every response they see — including web pages proxied over the WEB
+// binding, which blocked all of Next.js's inline scripts and broke
+// hydration on the apex domain. Slug and unlock requests fall through to
+// next() and still get the full API middleware stack.
 // Apex host shim — go2.gg routes to this worker so short-link clicks skip the
 // OpenNext worker, whose multi-second cold start dominated click latency.
 // Only two things are handled natively on the apex: short-link resolution
@@ -281,6 +187,57 @@ function isApexHost(env: Env, host: string): boolean {
 
 const UNLOCK_POST_RE = /^\/api\/v1\/links\/[^/]+\/verify$/;
 
+// Edge cache for anonymous apex page loads. The web worker re-renders
+// prerendered pages on every request and pays OpenNext cold starts; the
+// first anonymous hit per PoP fills the cache, the rest are served in
+// single-digit ms without touching the web worker at all. RSC/flight
+// requests and anything carrying a session cookie bypass the cache.
+const EDGE_CACHE_TTL_SECONDS = 300;
+const EDGE_CACHE_STATIC_TTL_SECONDS = 3600;
+
+// Marketing/docs surfaces only. Notably absent: status (force-dynamic),
+// dashboard/auth pages (session-dependent), api (Next route handlers).
+const EDGE_CACHEABLE_SEGMENTS = new Set([
+  "pricing",
+  "blog",
+  "docs",
+  "features",
+  "about",
+  "tools",
+  "competitors",
+  "guides",
+  "solutions",
+  "agents",
+  "case-studies",
+  "changelog",
+  "help",
+  "free",
+  "careers",
+  "events",
+  "partners",
+  "security",
+  "terms",
+  "privacy",
+  "cookies",
+  "dpa",
+  "acceptable-use",
+  "contact",
+  "llms.txt",
+  "llms-full.txt",
+]);
+
+function isEdgeCacheablePath(pathname: string): boolean {
+  if (pathname === "/") return true;
+  if (pathname.startsWith("/_next/static/")) return true;
+  const segment = pathname.split("/")[1] ?? "";
+  return EDGE_CACHEABLE_SEGMENTS.has(segment);
+}
+
+function hasSessionCookie(cookieHeader: string | undefined): boolean {
+  if (!cookieHeader) return false;
+  return /go2_jwt|better-auth|session/i.test(cookieHeader);
+}
+
 app.use("*", async (c, next) => {
   if (!c.env.WEB) {
     return next();
@@ -300,7 +257,163 @@ app.use("*", async (c, next) => {
   if (isSlugRequest || isUnlockPost) {
     return next();
   }
-  return c.env.WEB.fetch(c.req.raw);
+
+  const cacheable =
+    method === "GET" &&
+    isEdgeCacheablePath(pathname) &&
+    !hasSessionCookie(c.req.header("cookie")) &&
+    // RSC/flight fetches return a different payload for the same URL; the
+    // cache key can't tell them apart from document requests, so skip both.
+    !c.req.header("rsc") &&
+    !c.req.header("next-router-prefetch");
+
+  if (!cacheable) {
+    return c.env.WEB.fetch(c.req.raw);
+  }
+
+  // Markdown content negotiation serves a different body on / and /pricing;
+  // bucket it into the cache key instead of relying on Vary.
+  const keyUrl = new URL(c.req.url);
+  if ((c.req.header("accept") ?? "").includes("text/markdown")) {
+    keyUrl.searchParams.set("__go2_fmt", "md");
+  }
+  const cacheKey = new Request(keyUrl.toString(), { method: "GET" });
+  const cache = caches.default;
+
+  const hit = await cache.match(cacheKey);
+  if (hit) {
+    const res = new Response(hit.body, hit);
+    res.headers.set("x-go2-edge-cache", "hit");
+    return res;
+  }
+
+  const upstream = await c.env.WEB.fetch(c.req.raw);
+  if (upstream.status === 200 && !upstream.headers.has("set-cookie")) {
+    const ttl = pathname.startsWith("/_next/static/")
+      ? EDGE_CACHE_STATIC_TTL_SECONDS
+      : EDGE_CACHE_TTL_SECONDS;
+    const cacheCopy = new Response(upstream.clone().body, upstream);
+    // Next stamps prerendered pages with s-maxage=31536000; override so the
+    // edge copy expires on our schedule, not Next's.
+    cacheCopy.headers.set("cache-control", `public, s-maxage=${ttl}`);
+    c.executionCtx.waitUntil(cache.put(cacheKey, cacheCopy));
+  }
+  const res = new Response(upstream.body, upstream);
+  res.headers.set("x-go2-edge-cache", "miss");
+  return res;
+});
+
+// CORS
+app.use(
+  "*",
+  cors({
+    origin: (origin, c) => {
+      const appUrl = c.env.APP_URL;
+      const allowedOrigins = [
+        // Development
+        "http://localhost:3000",
+        "http://localhost:8787",
+        // Production - explicit origins
+        "https://go2.gg",
+        "https://www.go2.gg",
+        // From env (for staging, etc.)
+        appUrl,
+        appUrl?.replace("://", "://www."),
+      ].filter(Boolean) as string[];
+
+      // Check if origin is in allowed list
+      if (origin && allowedOrigins.includes(origin)) {
+        return origin;
+      }
+
+      // For requests without Origin header (like server-to-server), allow
+      if (!origin) {
+        return "*";
+      }
+
+      return "";
+    },
+    // `rsc` + the `next-router-*` headers are sent by Next.js's RSC fetches
+    // when /openapi.json redirects from go2.gg → api.go2.gg. Without them
+    // here the preflight is rejected.
+    allowHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Request-ID",
+      "X-CSRF-Token",
+      "RSC",
+      "Next-Router-State-Tree",
+      "Next-Router-Prefetch",
+      "Next-Url",
+    ],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    credentials: true,
+    maxAge: 86400,
+  })
+);
+
+// Security headers — hand-rolled instead of hono's secureHeaders() because
+// the apex notFound fall-through proxies web pages over the WEB binding, and
+// those must keep the web worker's own headers: stamping the API's strict
+// CSP (script-src 'self') onto Next.js pages blocks every inline script and
+// kills hydration. secureHeaders() stamps unconditionally; this respects the
+// apexWebFallthrough flag set by the notFound handler.
+// NOTE: Cross-Origin-Resource-Policy must be "cross-origin" — "same-origin"
+// blocks browser delivery of api.go2.gg responses to go2.gg pages (CORS
+// preflight passes but the response is dropped as "Failed to fetch").
+const API_SECURITY_HEADERS: Record<string, string> = {
+  "Content-Security-Policy":
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'",
+  "Cross-Origin-Resource-Policy": "cross-origin",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Strict-Transport-Security": "max-age=15552000; includeSubDomains",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "X-XSS-Protection": "0",
+  "X-Download-Options": "noopen",
+  "X-Permitted-Cross-Domain-Policies": "none",
+  "X-DNS-Prefetch-Control": "off",
+  "Origin-Agent-Cluster": "?1",
+};
+
+app.use("*", async (c, next) => {
+  await next();
+  if (c.get("apexWebFallthrough")) {
+    return;
+  }
+  for (const [name, value] of Object.entries(API_SECURITY_HEADERS)) {
+    c.res.headers.set(name, value);
+  }
+});
+
+// Pretty JSON in development
+app.use("*", prettyJSON());
+
+// Request logging
+app.use("*", loggerMiddleware());
+
+// Demo mode write-guard (no-op unless DEMO_MODE=true)
+app.use("*", demoModeMiddleware());
+
+// Global error handler
+app.onError(errorHandler);
+
+// -----------------------------------------------------------------------------
+// MCP host shim — mcp.go2.gg requests are routed to the /mcp transport
+// regardless of incoming path. Lets remote clients (Claude.ai, ChatGPT,
+// Perplexity) point at https://mcp.go2.gg/mcp without the api.go2.gg prefix
+// while keeping a single Worker behind both hostnames.
+// -----------------------------------------------------------------------------
+
+const MCP_HOSTS = new Set(["mcp.go2.gg", "mcp.staging.go2.gg"]);
+
+app.use("*", async (c, next) => {
+  const host = c.req.header("host")?.split(":")[0]?.toLowerCase();
+  if (host && MCP_HOSTS.has(host)) {
+    const { mcp: mcpRouter } = await import("./routes/mcp/index.js");
+    return mcpRouter.fetch(c.req.raw, c.env, c.executionCtx);
+  }
+  await next();
 });
 
 // -----------------------------------------------------------------------------
@@ -349,45 +462,7 @@ async function loadCachedLinkFromD1(
   if (!row) {
     return null;
   }
-  return {
-    id: row.id,
-    destinationUrl: row.destinationUrl,
-    domain: row.domain,
-    slug: row.slug,
-    userId: row.userId ?? undefined,
-    organizationId: row.organizationId ?? undefined,
-    geoTargets: row.geoTargets ? JSON.parse(row.geoTargets) : undefined,
-    deviceTargets: row.deviceTargets ? JSON.parse(row.deviceTargets) : undefined,
-    passwordHash: row.passwordHash ?? undefined,
-    expiresAt: row.expiresAt ?? undefined,
-    policyExpiresAt: row.policyExpiresAt ?? undefined,
-    clickLimit: row.clickLimit ?? undefined,
-    clickCount: row.clickCount ?? undefined,
-    iosUrl: row.iosUrl ?? undefined,
-    androidUrl: row.androidUrl ?? undefined,
-    abTestId: row.abTestId ?? undefined,
-    abVariant: row.abVariant ?? undefined,
-    rewrite: row.rewrite ?? undefined,
-    ogTitle: row.ogTitle ?? undefined,
-    ogDescription: row.ogDescription ?? undefined,
-    ogImage: row.ogImage ?? undefined,
-    trackingPixels: row.trackingPixels ? JSON.parse(row.trackingPixels) : undefined,
-    enablePixelTracking: row.enablePixelTracking ?? undefined,
-    requirePixelConsent: row.requirePixelConsent ?? undefined,
-    trackAnalytics: row.trackAnalytics ?? undefined,
-    publicStats: row.publicStats ?? undefined,
-    trackConversion: row.trackConversion ?? undefined,
-    skipDeduplication: row.skipDeduplication ?? undefined,
-    agentId: row.agentId ?? undefined,
-    agentRunId: row.agentRunId ?? undefined,
-    agentActorId: row.agentActorId ?? undefined,
-    agentMetadata: row.agentMetadata ? JSON.parse(row.agentMetadata) : undefined,
-    isArchived: row.isArchived ?? undefined,
-    isDisabled: row.isDisabled ?? undefined,
-    disabledReason: row.disabledReason ?? undefined,
-    threatStatus: (row.threatStatus as CachedLink["threatStatus"]) ?? undefined,
-    createdAt: row.createdAt ?? undefined,
-  };
+  return serializeCachedLink(row);
 }
 
 app.get("/:slug", async (c, next) => {
@@ -857,7 +932,21 @@ app.get("/:slug", async (c, next) => {
           });
         }
       } catch (error) {
+        // Workers Logs are sampled at 10%, which made click-write failures
+        // ~90% invisible — and billing counts D1 click rows. Axiom events
+        // are unsampled, so route the failure there too.
         console.error("Failed to track click:", error);
+        await logToAxiom(
+          c.env,
+          "click.track.failed",
+          {
+            linkId: link.id,
+            domain: link.domain,
+            slug: link.slug,
+            err: error instanceof Error ? error.message : String(error),
+          },
+          "error"
+        ).catch(() => undefined);
       }
     })()
   );
@@ -947,8 +1036,30 @@ app.get("/:slug", async (c, next) => {
     );
   }
 
-  // Return 301 permanent redirect (no pixels, no cloaking)
-  return c.redirect(destination, 301);
+  // Link-preview crawlers get a minimal OG page when the link carries custom
+  // OG metadata; without it they follow the redirect and read the
+  // destination's own tags. Only links that cleared the safety gates above
+  // reach this point, so this never dresses up an unverified destination.
+  if (link.ogTitle || link.ogDescription || link.ogImage) {
+    const ua = c.req.header("user-agent") ?? "";
+    if (isLinkPreviewBot(ua)) {
+      return c.html(
+        renderOgPreviewPage({
+          shortUrl: `https://${link.domain}/${link.slug}`,
+          destination: baseDestination,
+          title: link.ogTitle,
+          description: link.ogDescription,
+          image: link.ogImage,
+        })
+      );
+    }
+  }
+
+  // 302, not 301: browsers cache permanent redirects forever, which (a) makes
+  // repeat clicks invisible to analytics with a frozen go2_ref click ID and
+  // (b) keeps serving a destination after the link is disabled for abuse.
+  c.header("Cache-Control", "private, no-store");
+  return c.redirect(destination, 302);
 });
 
 // -----------------------------------------------------------------------------
@@ -1118,6 +1229,9 @@ app.notFound((c) => {
   if (c.env.WEB && isApexHost(c.env, host) && !c.req.header("x-go2-apex-fallthrough")) {
     const forwarded = new Request(c.req.raw);
     forwarded.headers.set("x-go2-apex-fallthrough", "1");
+    // The web worker owns the headers on this response — see the security
+    // headers middleware, which skips stamping when this flag is set.
+    c.set("apexWebFallthrough", true);
     return c.env.WEB.fetch(forwarded);
   }
   return c.json(
@@ -1131,6 +1245,20 @@ app.notFound((c) => {
     404
   );
 });
+
+/**
+ * Cron/queue failure funnel. console.error alone lands in Workers Logs at a
+ * 10% sample — a dead cron stays invisible. Axiom events are unsampled.
+ */
+function logJobError(env: Env, job: string, error: unknown): Promise<void> {
+  console.error(`[job] ${job} failed:`, error);
+  return logToAxiom(
+    env,
+    "job.failed",
+    { job, err: error instanceof Error ? error.message : String(error) },
+    "error"
+  ).catch(() => undefined);
+}
 
 // -----------------------------------------------------------------------------
 // Queue Consumer Handler
@@ -1184,7 +1312,7 @@ export default {
 
         message.ack();
       } catch (error) {
-        console.error(`Failed to process job ${type}:`, error);
+        await logJobError(env, `queue:${type}`, error);
         message.retry();
       }
     }
@@ -1225,7 +1353,7 @@ export default {
                 await env.LINKS_KV.delete(`${link.domain}:${link.slug}`);
               }
             } catch (error) {
-              console.error("Failed to cleanup expired links:", error);
+              await logJobError(env, "cleanup-expired-links", error);
             }
 
             // 2. Handle expired trial subscriptions
@@ -1257,7 +1385,7 @@ export default {
                   .where(eq(schema.subscriptions.id, trial.id));
               }
             } catch (error) {
-              console.error("Failed to process expired trials:", error);
+              await logJobError(env, "expire-trials", error);
             }
 
             // 3. Fix orphaned users (users without organizations)
@@ -1268,7 +1396,7 @@ export default {
               if (result.fixed > 0 || result.errors > 0) {
               }
             } catch (error) {
-              console.error("Failed to fix orphaned users:", error);
+              await logJobError(env, "fix-orphaned-users", error);
             }
 
             // 4. Backfill plan-tier link retention.
@@ -1331,7 +1459,7 @@ export default {
               // Suppress unused warning for `isNull` (kept for future filtered queries).
               void isNull;
             } catch (error) {
-              console.error("Failed to apply retention policy:", error);
+              await logJobError(env, "retention-policy", error);
             }
 
             // Threat rescan moved to the every-4h trigger below — it shares
@@ -1393,7 +1521,7 @@ export default {
                 console.log(`[cron] pruned ${totalDeleted} clicks across ${orgs.length} orgs`);
               }
             } catch (error) {
-              console.error("Failed to prune clicks:", error);
+              await logJobError(env, "prune-clicks", error);
             }
           })()
         );
@@ -1457,7 +1585,7 @@ export default {
                   );
                 }
               } catch (error) {
-                console.error("Failed to run threat rescan:", error);
+                await logJobError(env, "threat-rescan", error);
               }
 
               // Send notifications for newly broken links
@@ -1504,7 +1632,7 @@ export default {
                 }
               }
             } catch (error) {
-              console.error("Failed to check link health:", error);
+              await logJobError(env, "link-health", error);
             }
           })()
         );
@@ -1635,7 +1763,7 @@ export default {
                 }
               }
             } catch (error) {
-              console.error("Failed to check usage alerts:", error);
+              await logJobError(env, "usage-alerts", error);
             }
 
             // Check for trial expiry warnings (3 days and 1 day before)
@@ -1717,7 +1845,7 @@ export default {
                 }
               }
             } catch (error) {
-              console.error("Failed to check trial expiry warnings:", error);
+              await logJobError(env, "trial-expiry-warnings", error);
             }
           })()
         );
@@ -1735,7 +1863,7 @@ export default {
                 params: { triggeredAt: new Date(event.scheduledTime).toISOString() },
               });
             } catch (error) {
-              console.error("Failed to dispatch dunning workflow:", error);
+              await logJobError(env, "dunning-dispatch", error);
             }
           })()
         );
@@ -1754,7 +1882,7 @@ export default {
               if (result.orgs > 0) {
               }
             } catch (error) {
-              console.error("Failed to report Scale usage:", error);
+              await logJobError(env, "scale-usage-report", error);
             }
           })()
         );
@@ -1790,7 +1918,7 @@ export default {
                 const _upgradeEnrolled = await checkUpgradeEligible(db);
               }
             } catch (error) {
-              console.error("Failed to process drip emails:", error);
+              await logJobError(env, "drip-emails", error);
             }
           })()
         );

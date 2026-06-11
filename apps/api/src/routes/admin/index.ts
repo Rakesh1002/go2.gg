@@ -135,76 +135,47 @@ admin.post("/links/resync-kv", async (c) => {
   let errors = 0;
   let cursor: string | null = null;
 
-  for (;;) {
-    const stmt = cursor
-      ? c.env.DB.prepare(
-          "SELECT * FROM links WHERE is_archived = 0 AND id > ? ORDER BY id ASC LIMIT ?"
-        ).bind(cursor, batchSize)
-      : c.env.DB.prepare("SELECT * FROM links WHERE is_archived = 0 ORDER BY id ASC LIMIT ?").bind(
-          batchSize
-        );
+  const { drizzle } = await import("drizzle-orm/d1");
+  const { and, asc, eq, gt } = await import("drizzle-orm");
+  const schema = await import("@repo/db");
+  const { serializeCachedLink, syncLinkToKV } = await import("../../lib/cached-link.js");
+  const db = drizzle(c.env.DB, { schema });
 
-    const result = await stmt.all<Record<string, unknown>>();
-    const rows = result.results ?? [];
+  for (;;) {
+    const rows = await db
+      .select()
+      .from(schema.links)
+      .where(
+        cursor
+          ? and(eq(schema.links.isArchived, false), gt(schema.links.id, cursor))
+          : eq(schema.links.isArchived, false)
+      )
+      .orderBy(asc(schema.links.id))
+      .limit(batchSize);
     if (rows.length === 0) break;
 
     for (const row of rows) {
       try {
-        const expiresAt = row.expires_at as string | null;
-        const policyExpiresAt = row.policy_expires_at as string | null;
-        if (expiresAt && expiresAt < nowIso) {
+        if (row.expiresAt && row.expiresAt < nowIso) {
           skipped++;
           continue;
         }
-        if (policyExpiresAt && policyExpiresAt < nowIso) {
+        if (row.policyExpiresAt && row.policyExpiresAt < nowIso) {
           skipped++;
           continue;
         }
-        const cached = {
-          id: row.id as string,
-          destinationUrl: row.destination_url as string,
-          domain: row.domain as string,
-          slug: row.slug as string,
-          userId: (row.user_id as string | null) ?? undefined,
-          organizationId: (row.organization_id as string | null) ?? undefined,
-          geoTargets: row.geo_targets ? JSON.parse(row.geo_targets as string) : undefined,
-          deviceTargets: row.device_targets ? JSON.parse(row.device_targets as string) : undefined,
-          passwordHash: (row.password_hash as string | null) ?? undefined,
-          expiresAt: expiresAt ?? undefined,
-          policyExpiresAt: policyExpiresAt ?? undefined,
-          clickLimit: (row.click_limit as number | null) ?? undefined,
-          clickCount: (row.click_count as number | null) ?? undefined,
-          iosUrl: (row.ios_url as string | null) ?? undefined,
-          androidUrl: (row.android_url as string | null) ?? undefined,
-          rewrite: row.rewrite === 1 ? true : undefined,
-          ogTitle: (row.og_title as string | null) ?? undefined,
-          ogDescription: (row.og_description as string | null) ?? undefined,
-          ogImage: (row.og_image as string | null) ?? undefined,
-          trackingPixels: row.tracking_pixels
-            ? JSON.parse(row.tracking_pixels as string)
-            : undefined,
-          enablePixelTracking: row.enable_pixel_tracking === 1 ? true : undefined,
-          requirePixelConsent: row.require_pixel_consent === 1 ? true : undefined,
-          trackAnalytics: row.track_analytics !== 0,
-          publicStats: row.public_stats === 1 ? true : undefined,
-          trackConversion: row.track_conversion === 1 ? true : undefined,
-          skipDeduplication: row.skip_deduplication === 1 ? true : undefined,
-          agentId: (row.agent_id as string | null) ?? undefined,
-          agentRunId: (row.agent_run_id as string | null) ?? undefined,
-          agentActorId: (row.agent_actor_id as string | null) ?? undefined,
-          agentMetadata: row.agent_metadata ? JSON.parse(row.agent_metadata as string) : undefined,
-          isArchived: false,
-        };
-        const key = `${cached.domain}:${cached.slug}`;
+        // Disabled links are synced too — the resolver needs the isDisabled
+        // entry to serve the 410 explanation page instead of redirecting.
+        const cached = serializeCachedLink(row);
         if (!dryRun) {
-          await c.env.LINKS_KV.put(key, JSON.stringify(cached));
+          await syncLinkToKV(c.env.LINKS_KV, cached);
         }
         synced++;
       } catch (error) {
         console.error("[admin/resync-kv] error on row", row.id, error);
         errors++;
       }
-      cursor = row.id as string;
+      cursor = row.id;
     }
 
     if (rows.length < batchSize) break;
@@ -270,6 +241,71 @@ admin.get("/users/:id", async (c) => {
     .all();
 
   return ok(c, { ...user, organizations: orgs.results });
+});
+
+/**
+ * POST /admin/users/:id/ban
+ * Suspend a user: flags user_metadata, disables their active links in D1 and
+ * KV, expires API keys, revokes OAuth tokens, deletes live sessions.
+ * Body (optional): { reason?: string }
+ */
+admin.post(
+  "/users/:id/ban",
+  zValidator("json", z.object({ reason: z.string().max(500).optional() }).optional()),
+  async (c) => {
+    const userId = c.req.param("id");
+    const body = c.req.valid("json");
+
+    const { drizzle } = await import("drizzle-orm/d1");
+    const schema = await import("@repo/db");
+    const { eq } = await import("drizzle-orm");
+    const db = drizzle(c.env.DB, { schema });
+
+    const [user] = await db
+      .select({ id: schema.users.id, email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+    if (!user) {
+      return c.json(
+        { success: false, error: { code: "NOT_FOUND", message: "User not found" } },
+        404
+      );
+    }
+
+    const { banUser } = await import("../../lib/suspension.js");
+    const result = await banUser(c.env, db, userId, body?.reason);
+
+    await logEvent(
+      c.env,
+      "admin.user.banned",
+      { userId, reason: body?.reason ?? null, ...result },
+      "warn"
+    ).catch(() => undefined);
+
+    return ok(c, { userId, banned: true, ...result });
+  }
+);
+
+/**
+ * POST /admin/users/:id/unban
+ * Lift a suspension. Re-enables only the links that were disabled by the ban.
+ */
+admin.post("/users/:id/unban", async (c) => {
+  const userId = c.req.param("id");
+
+  const { drizzle } = await import("drizzle-orm/d1");
+  const schema = await import("@repo/db");
+  const db = drizzle(c.env.DB, { schema });
+
+  const { unbanUser } = await import("../../lib/suspension.js");
+  const result = await unbanUser(c.env, db, userId);
+
+  await logEvent(c.env, "admin.user.unbanned", { userId, ...result }, "info").catch(
+    () => undefined
+  );
+
+  return ok(c, { userId, banned: false, ...result });
 });
 
 /**

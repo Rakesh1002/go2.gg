@@ -16,22 +16,23 @@
  * 5. GET /migrations - List past migrations
  */
 
-import { Hono } from "hono";
-import { z } from "zod";
-import { drizzle } from "drizzle-orm/d1";
-import { and, desc, eq } from "drizzle-orm";
 import * as schema from "@repo/db";
+import { and, desc, eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import { Hono } from "hono";
 import { nanoid } from "nanoid";
+import { z } from "zod";
 import type { Env } from "../../bindings.js";
-import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
+import { serializeCachedLink, syncLinkToKV } from "../../lib/cached-link.js";
 import {
+  type MigrationCredentials,
+  type MigrationProvider,
   fetchLinksFromProvider,
   getProviderInfo,
   listProviders,
   validateCredentials,
-  type MigrationCredentials,
-  type MigrationProvider,
 } from "../../lib/migrations/index.js";
+import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
 
 const migrations = new Hono<{ Bindings: Env }>();
 
@@ -253,7 +254,7 @@ migrations.post("/start", async (c) => {
             const linkId = nanoid();
 
             // Create the link
-            await db.insert(schema.links).values({
+            const newLink = {
               id: linkId,
               userId: user.id,
               organizationId: user.organizationId ?? null,
@@ -267,7 +268,8 @@ migrations.post("/start", async (c) => {
               migrationId,
               migrationSource: parsed.data.provider,
               migrationOriginalId: link.originalId,
-            });
+            } satisfies schema.NewLink;
+            await db.insert(schema.links).values(newLink);
 
             // Import tags if enabled
             if (parsed.data.options?.importTags !== false && link.tags?.length) {
@@ -309,17 +311,9 @@ migrations.post("/start", async (c) => {
               }
             }
 
-            // Sync to KV
-            await c.env.LINKS_KV.put(
-              `${defaultDomain}:${slug}`,
-              JSON.stringify({
-                id: linkId,
-                destinationUrl: link.originalUrl,
-                domain: defaultDomain,
-                slug,
-              }),
-              { expirationTtl: 86400 * 365 } // 1 year
-            );
+            // Sync the full row shape to KV — no TTL, owner fields included,
+            // so migrated links bill, prune, and track like native ones.
+            await syncLinkToKV(c.env.LINKS_KV, serializeCachedLink(newLink));
 
             imported++;
           } catch (error) {

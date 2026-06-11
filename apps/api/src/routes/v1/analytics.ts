@@ -10,14 +10,14 @@
  * - GET /analytics/top-links - Top performing links
  */
 
-import { Hono } from "hono";
-import { eq, sql, desc } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
 import * as schema from "@repo/db";
+import { desc, eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import { Hono } from "hono";
 import type { Env } from "../../bindings.js";
-import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
-import { forbidden, notFound, ok } from "../../lib/response.js";
 import { checkFolderAccess } from "../../lib/folders.js";
+import { forbidden, notFound, ok } from "../../lib/response.js";
+import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
 
 const analytics = new Hono<{ Bindings: Env }>();
 
@@ -39,31 +39,12 @@ analytics.get("/overview", async (c) => {
   startDate.setDate(startDate.getDate() - days);
   const startDateStr = startDate.toISOString();
 
-  // Get user's link IDs
-  const userLinks = await db
-    .select({ id: schema.links.id })
-    .from(schema.links)
-    .where(eq(schema.links.userId, user.id));
-
-  if (userLinks.length === 0) {
-    return ok(c, {
-      totalClicks: 0,
-      uniqueVisitors: 0,
-      topCountry: null,
-      topDevice: null,
-      clicksTrend: 0,
-    });
-  }
-
-  const linkIds = userLinks.map((l) => l.id);
-  const linkIdsStr = linkIds.map((id) => `'${id}'`).join(",");
-
   // Get total clicks in period
   const clicksResult = await db
     .select({ count: sql<number>`COUNT(*)` })
     .from(schema.clicks)
     .where(
-      sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${startDateStr}`
+      sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${startDateStr}`
     );
 
   // Get unique visitors (by IP hash)
@@ -71,7 +52,7 @@ analytics.get("/overview", async (c) => {
     .select({ count: sql<number>`COUNT(DISTINCT ${schema.clicks.ipHash})` })
     .from(schema.clicks)
     .where(
-      sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${startDateStr}`
+      sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${startDateStr}`
     );
 
   // Get top country
@@ -82,7 +63,7 @@ analytics.get("/overview", async (c) => {
     })
     .from(schema.clicks)
     .where(
-      sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${startDateStr} AND ${schema.clicks.country} IS NOT NULL`
+      sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${startDateStr} AND ${schema.clicks.country} IS NOT NULL`
     )
     .groupBy(schema.clicks.country)
     .orderBy(desc(sql`COUNT(*)`))
@@ -96,7 +77,7 @@ analytics.get("/overview", async (c) => {
     })
     .from(schema.clicks)
     .where(
-      sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${startDateStr} AND ${schema.clicks.device} IS NOT NULL`
+      sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${startDateStr} AND ${schema.clicks.device} IS NOT NULL`
     )
     .groupBy(schema.clicks.device)
     .orderBy(desc(sql`COUNT(*)`))
@@ -111,7 +92,7 @@ analytics.get("/overview", async (c) => {
     .select({ count: sql<number>`COUNT(*)` })
     .from(schema.clicks)
     .where(
-      sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${prevStartDate.toISOString()} AND ${schema.clicks.timestamp} < ${prevEndDate.toISOString()}`
+      sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${prevStartDate.toISOString()} AND ${schema.clicks.timestamp} < ${prevEndDate.toISOString()}`
     );
 
   const currentClicks = Number(clicksResult[0]?.count) || 0;
@@ -144,19 +125,6 @@ analytics.get("/clicks", async (c) => {
   const previousStart = new Date();
   previousStart.setDate(previousStart.getDate() - days * 2);
 
-  // Get user's link IDs
-  const userLinks = await db
-    .select({ id: schema.links.id })
-    .from(schema.links)
-    .where(eq(schema.links.userId, user.id));
-
-  if (userLinks.length === 0) {
-    return ok(c, compare ? { data: [], previous: [] } : { data: [] });
-  }
-
-  const linkIds = userLinks.map((l) => l.id);
-  const linkIdsStr = linkIds.map((id) => `'${id}'`).join(",");
-
   // Pull current and (optionally) previous period in parallel.
   const startIso = startDate.toISOString();
   const previousStartIso = previousStart.toISOString();
@@ -169,7 +137,7 @@ analytics.get("/clicks", async (c) => {
       })
       .from(schema.clicks)
       .where(
-        sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${startIso}`,
+        sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${startIso}`
       )
       .groupBy(sql`DATE(${schema.clicks.timestamp})`)
       .orderBy(sql`DATE(${schema.clicks.timestamp})`),
@@ -181,7 +149,7 @@ analytics.get("/clicks", async (c) => {
           })
           .from(schema.clicks)
           .where(
-            sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${previousStartIso} AND ${schema.clicks.timestamp} < ${startIso}`,
+            sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${previousStartIso} AND ${schema.clicks.timestamp} < ${startIso}`
           )
           .groupBy(sql`DATE(${schema.clicks.timestamp})`)
           .orderBy(sql`DATE(${schema.clicks.timestamp})`)
@@ -230,19 +198,6 @@ analytics.get("/geo", async (c) => {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
 
-  // Get user's link IDs
-  const userLinks = await db
-    .select({ id: schema.links.id })
-    .from(schema.links)
-    .where(eq(schema.links.userId, user.id));
-
-  if (userLinks.length === 0) {
-    return ok(c, { data: [] });
-  }
-
-  const linkIds = userLinks.map((l) => l.id);
-  const linkIdsStr = linkIds.map((id) => `'${id}'`).join(",");
-
   const geoData = await db
     .select({
       country: schema.clicks.country,
@@ -250,7 +205,7 @@ analytics.get("/geo", async (c) => {
     })
     .from(schema.clicks)
     .where(
-      sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${startDate.toISOString()} AND ${schema.clicks.country} IS NOT NULL`
+      sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${startDate.toISOString()} AND ${schema.clicks.country} IS NOT NULL`
     )
     .groupBy(schema.clicks.country)
     .orderBy(desc(sql`COUNT(*)`))
@@ -277,19 +232,6 @@ analytics.get("/devices", async (c) => {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
 
-  // Get user's link IDs
-  const userLinks = await db
-    .select({ id: schema.links.id })
-    .from(schema.links)
-    .where(eq(schema.links.userId, user.id));
-
-  if (userLinks.length === 0) {
-    return ok(c, { devices: [], browsers: [] });
-  }
-
-  const linkIds = userLinks.map((l) => l.id);
-  const linkIdsStr = linkIds.map((id) => `'${id}'`).join(",");
-
   // Device breakdown
   const deviceData = await db
     .select({
@@ -298,7 +240,7 @@ analytics.get("/devices", async (c) => {
     })
     .from(schema.clicks)
     .where(
-      sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${startDate.toISOString()} AND ${schema.clicks.device} IS NOT NULL`
+      sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${startDate.toISOString()} AND ${schema.clicks.device} IS NOT NULL`
     )
     .groupBy(schema.clicks.device)
     .orderBy(desc(sql`COUNT(*)`));
@@ -312,7 +254,7 @@ analytics.get("/devices", async (c) => {
     })
     .from(schema.clicks)
     .where(
-      sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${startDate.toISOString()} AND ${schema.clicks.browser} IS NOT NULL`
+      sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${startDate.toISOString()} AND ${schema.clicks.browser} IS NOT NULL`
     )
     .groupBy(schema.clicks.browser)
     .orderBy(desc(sql`COUNT(*)`))
@@ -326,7 +268,7 @@ analytics.get("/devices", async (c) => {
     })
     .from(schema.clicks)
     .where(
-      sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${startDate.toISOString()} AND ${schema.clicks.os} IS NOT NULL`,
+      sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${startDate.toISOString()} AND ${schema.clicks.os} IS NOT NULL`
     )
     .groupBy(schema.clicks.os)
     .orderBy(desc(sql`COUNT(*)`))
@@ -341,7 +283,7 @@ analytics.get("/devices", async (c) => {
     })
     .from(schema.clicks)
     .where(
-      sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${startDate.toISOString()} AND ${schema.clicks.browser} IS NOT NULL AND ${schema.clicks.os} IS NOT NULL`,
+      sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${startDate.toISOString()} AND ${schema.clicks.browser} IS NOT NULL AND ${schema.clicks.os} IS NOT NULL`
     )
     .groupBy(schema.clicks.browser, schema.clicks.os)
     .orderBy(desc(sql`COUNT(*)`))
@@ -381,19 +323,6 @@ analytics.get("/referrers", async (c) => {
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - days);
 
-  // Get user's link IDs
-  const userLinks = await db
-    .select({ id: schema.links.id })
-    .from(schema.links)
-    .where(eq(schema.links.userId, user.id));
-
-  if (userLinks.length === 0) {
-    return ok(c, { data: [] });
-  }
-
-  const linkIds = userLinks.map((l) => l.id);
-  const linkIdsStr = linkIds.map((id) => `'${id}'`).join(",");
-
   const referrerData = await db
     .select({
       referrer: sql<string>`COALESCE(${schema.clicks.referrerDomain}, 'Direct')`,
@@ -401,7 +330,7 @@ analytics.get("/referrers", async (c) => {
     })
     .from(schema.clicks)
     .where(
-      sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)}) AND ${schema.clicks.timestamp} >= ${startDate.toISOString()}`
+      sql`${schema.clicks.userId} = ${user.id} AND ${schema.clicks.timestamp} >= ${startDate.toISOString()}`
     )
     .groupBy(sql`COALESCE(${schema.clicks.referrerDomain}, 'Direct')`)
     .orderBy(desc(sql`COUNT(*)`))
@@ -605,21 +534,7 @@ analytics.get("/recent", async (c) => {
   const limitRaw = Number.parseInt(c.req.query("limit") || "50", 10);
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 50;
 
-  const userLinks = await db
-    .select({ id: schema.links.id })
-    .from(schema.links)
-    .where(eq(schema.links.userId, user.id));
-
-  if (userLinks.length === 0) {
-    return ok(c, { data: [] });
-  }
-
-  const linkIds = userLinks.map((l) => l.id);
-  const linkIdsStr = linkIds.map((id) => `'${id}'`).join(",");
-
-  const sinceFilter = since
-    ? sql` AND ${schema.clicks.timestamp} > ${since}`
-    : sql``;
+  const sinceFilter = since ? sql` AND ${schema.clicks.timestamp} > ${since}` : sql``;
 
   const rows = await db
     .select({
@@ -638,7 +553,7 @@ analytics.get("/recent", async (c) => {
       timestamp: schema.clicks.timestamp,
     })
     .from(schema.clicks)
-    .where(sql`${schema.clicks.linkId} IN (${sql.raw(linkIdsStr)})${sinceFilter}`)
+    .where(sql`${schema.clicks.userId} = ${user.id}${sinceFilter}`)
     .orderBy(desc(schema.clicks.timestamp))
     .limit(limit);
 

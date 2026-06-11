@@ -82,6 +82,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Anything that looks like a file (/foo.png, /x.txt) is a missing static
+  // asset, never a short link — slugs can't contain dots. Proxying it to the
+  // API would bounce back here via the apex fallthrough and loop to a 1101
+  // worker error (that's exactly how /og.png used to take 2.3s to 500).
+  if (slug.includes(".")) {
+    return NextResponse.json({ error: "Not found" }, { status: 404, headers: ROBOT_HEADERS });
+  }
+
   // The API worker already failed to resolve this slug and forwarded it here
   // as a possible web asset/page (see its notFound handler). Nothing matched,
   // so answer 404 instead of proxying back — that would loop.
