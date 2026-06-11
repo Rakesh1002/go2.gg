@@ -99,16 +99,18 @@ publicLinks.post(
       slug = generateSlug(7);
     }
 
-    // Check if slug already exists (very unlikely with random generation)
-    const existing = await db
-      .select({ id: schema.links.id })
-      .from(schema.links)
-      .where(and(eq(schema.links.domain, domain), eq(schema.links.slug, slug)))
-      .limit(1);
-
-    if (existing.length > 0) {
-      // Regenerate - shouldn't happen often
-      return publicLinks.fetch(c.req.raw, c.env, c.executionCtx);
+    // Ensure the slug is free. AI slugs are largely deterministic per-URL, so a
+    // repeat destination (e.g. a popular domain) collides every time —
+    // regenerate with a random slug instead of re-dispatching the request,
+    // which consumed its body and 404'd against this sub-app's "/" route.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const existing = await db
+        .select({ id: schema.links.id })
+        .from(schema.links)
+        .where(and(eq(schema.links.domain, domain), eq(schema.links.slug, slug)))
+        .limit(1);
+      if (existing.length === 0) break;
+      slug = generateSlug(7 + attempt);
     }
 
     const id = crypto.randomUUID();
