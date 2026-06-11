@@ -30,6 +30,14 @@ export interface Env {
   /** Analytics Engine for click tracking */
   TRACKER: AnalyticsEngineDataset;
 
+  /**
+   * Service binding to the web (Next.js) worker. Present in production,
+   * where this worker owns the go2.gg apex so short-link clicks skip the
+   * heavy OpenNext cold start; every non-link apex request streams through
+   * to the web worker over this binding.
+   */
+  WEB?: Fetcher;
+
   /** Workers AI for slug suggestions */
   AI: Ai;
 

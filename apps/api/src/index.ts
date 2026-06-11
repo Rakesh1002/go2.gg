@@ -207,6 +207,99 @@ app.use("*", async (c, next) => {
 });
 
 // -----------------------------------------------------------------------------
+// Apex host shim — go2.gg routes to this worker so short-link clicks skip the
+// OpenNext worker, whose multi-second cold start dominated click latency.
+// Only two things are handled natively on the apex: short-link resolution
+// (single-segment GET/HEAD that isn't a known web page) and the password
+// unlock POST. Everything else streams through to the web worker over the WEB
+// service binding, untouched. Unknown single segments still try the slug
+// path first and fall through to the web worker via the notFound handler.
+// -----------------------------------------------------------------------------
+
+// Single-segment paths served by the Next.js app. Kept in sync with
+// RESERVED_PATHS in apps/web/app/[slug]/route.ts. This is a fast path, not a
+// correctness gate — anything missing here costs one KV/D1 lookup and then
+// reaches the web worker through notFound anyway.
+const WEB_APP_PATHS = new Set([
+  "api",
+  "auth",
+  "bio",
+  "blog",
+  "dashboard",
+  "docs",
+  "invite",
+  "admin",
+  "r",
+  "affiliates",
+  "about",
+  "acceptable-use",
+  "report-abuse",
+  "careers",
+  "case-studies",
+  "changelog",
+  "competitors",
+  "contact",
+  "cookies",
+  "dpa",
+  "events",
+  "features",
+  "free",
+  "guides",
+  "help",
+  "partners",
+  "pricing",
+  "privacy",
+  "security",
+  "settings",
+  "billing",
+  "solutions",
+  "status",
+  "terms",
+  "tools",
+  "login",
+  "register",
+  "forgot-password",
+  "reset-password",
+  "favicon.ico",
+  "robots.txt",
+  "sitemap.xml",
+  "manifest.webmanifest",
+  "openapi.json",
+  "llms.txt",
+  "llms-full.txt",
+  "_next",
+]);
+
+function isApexHost(env: Env, host: string): boolean {
+  const defaultDomain = (env.DEFAULT_DOMAIN ?? "go2.gg").toLowerCase();
+  return host === defaultDomain || host === `www.${defaultDomain}`;
+}
+
+const UNLOCK_POST_RE = /^\/api\/v1\/links\/[^/]+\/verify$/;
+
+app.use("*", async (c, next) => {
+  if (!c.env.WEB) {
+    return next();
+  }
+  const host = c.req.header("host")?.split(":")[0]?.toLowerCase() ?? "";
+  if (!isApexHost(c.env, host)) {
+    return next();
+  }
+  const { pathname } = new URL(c.req.url);
+  const method = c.req.method;
+  const slugMatch = /^\/([^/]+)$/.exec(pathname);
+  const isSlugRequest =
+    (method === "GET" || method === "HEAD") &&
+    slugMatch?.[1] != null &&
+    !WEB_APP_PATHS.has(slugMatch[1].toLowerCase());
+  const isUnlockPost = method === "POST" && UNLOCK_POST_RE.test(pathname);
+  if (isSlugRequest || isUnlockPost) {
+    return next();
+  }
+  return c.env.WEB.fetch(c.req.raw);
+});
+
+// -----------------------------------------------------------------------------
 // Short Link Redirect Handler (BEFORE all other routes)
 // -----------------------------------------------------------------------------
 
@@ -1002,6 +1095,13 @@ app.get("/", (c) => {
 // -----------------------------------------------------------------------------
 
 app.notFound((c) => {
+  // Apex fall-through: a single-segment path that didn't resolve as a short
+  // link may still be a web asset or page (favicon variants, future Next
+  // routes), so the web worker gets the final word on the apex.
+  const host = c.req.header("host")?.split(":")[0]?.toLowerCase() ?? "";
+  if (c.env.WEB && isApexHost(c.env, host)) {
+    return c.env.WEB.fetch(c.req.raw);
+  }
   return c.json(
     {
       success: false,
