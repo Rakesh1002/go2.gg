@@ -10,11 +10,12 @@ export const metadata: Metadata = {
 export default async function RegisterPage({
   searchParams,
 }: {
-  searchParams: Promise<{ plan?: string; annual?: string }>;
+  searchParams: Promise<{ plan?: string; annual?: string; claim?: string }>;
 }) {
   // Keep the pricing-CTA upgrade intent alive for users who already have an
   // account and switch to sign-in — the login form honors ?redirect=.
-  const { plan, annual } = await searchParams;
+  const { plan, annual, claim } = await searchParams;
+  const claimingGuestLink = claim === "guest";
   const loginHref = plan
     ? `/login?redirect=${encodeURIComponent(
         `/dashboard/billing?upgrade=${plan}${annual ? `&annual=${annual}` : ""}`
@@ -27,6 +28,13 @@ export default async function RegisterPage({
         <h1 className="font-bold text-3xl text-foreground tracking-tight">Create an account</h1>
         <p className="text-muted-foreground">Get started with your free account</p>
       </div>
+
+      {claimingGuestLink && (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 text-center text-foreground text-sm">
+          Create your account to keep the link you just shortened &mdash; and unlock click
+          analytics.
+        </div>
+      )}
 
       <RegisterForm />
 

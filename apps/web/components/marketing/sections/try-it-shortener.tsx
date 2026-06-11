@@ -2,6 +2,7 @@
 
 import { Turnstile } from "@/components/turnstile";
 import { Button } from "@/components/ui/button";
+import { useSession } from "@/lib/auth/client";
 import { normalizeDestinationUrl } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { ArrowRight, Copy, Link2, Loader2, Sparkles } from "lucide-react";
@@ -36,6 +37,8 @@ function getOrCreateClaimToken(): string {
 }
 
 export function TryItShortener() {
+  const { data: session } = useSession();
+  const isAuthenticated = !!session?.user;
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<CreatedLink | null>(null);
@@ -160,10 +163,10 @@ export function TryItShortener() {
               Copy
             </Button>
             <Link
-              href="/register?claim=guest"
+              href={isAuthenticated ? "/dashboard/links" : "/register?claim=guest"}
               className="inline-flex items-center gap-1.5 rounded-md bg-[var(--marketing-accent)] px-3 py-1.5 font-medium text-sm text-white transition hover:bg-[var(--marketing-accent-light)]"
             >
-              Claim &amp; track it
+              {isAuthenticated ? "Save to dashboard" : "Claim & track it"}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
