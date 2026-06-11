@@ -3,7 +3,8 @@
 /**
  * Cloudflare Turnstile Component
  *
- * Provides invisible bot protection for forms.
+ * Low-friction (interaction-only) bot protection for forms — the widget stays
+ * hidden and issues a token in the background unless a challenge is required.
  *
  * @example
  * ```tsx
@@ -27,7 +28,7 @@ declare global {
           "error-callback"?: () => void;
           "expired-callback"?: () => void;
           theme?: "light" | "dark" | "auto";
-          size?: "normal" | "compact" | "invisible";
+          size?: "normal" | "compact" | "flexible";
           appearance?: "always" | "execute" | "interaction-only";
         }
       ) => string;
@@ -46,8 +47,8 @@ interface TurnstileProps {
   onExpire?: () => void;
   /** Theme - auto, light, or dark */
   theme?: "light" | "dark" | "auto";
-  /** Size of the widget */
-  size?: "normal" | "compact" | "invisible";
+  /** Size of the widget (Cloudflare has no "invisible" size — use appearance for that) */
+  size?: "normal" | "compact" | "flexible";
   /** When to show the widget */
   appearance?: "always" | "execute" | "interaction-only";
   /** Additional CSS class */
@@ -59,7 +60,7 @@ export function Turnstile({
   onError,
   onExpire,
   theme = "auto",
-  size = "invisible",
+  size = "flexible",
   appearance = "interaction-only",
   className,
 }: TurnstileProps) {
