@@ -73,11 +73,7 @@ import { logEvent as logToAxiom } from "./lib/axiom.js";
 import { generateCloakedPage } from "./lib/cloaked-page.js";
 
 // Safety interstitial + disabled-link page
-import {
-  renderDisabledPage,
-  renderInterstitial,
-  renderPasswordPage,
-} from "./lib/safety-pages.js";
+import { renderDisabledPage, renderInterstitial, renderPasswordPage } from "./lib/safety-pages.js";
 
 import { getCookie, setCookie } from "hono/cookie";
 import { signUnlockToken, verifyPassword, verifyUnlockToken } from "./lib/password.js";
@@ -87,6 +83,7 @@ import { getOpenApiSpec } from "./lib/openapi-spec.js";
 
 // Webhook dispatcher
 import { captureEvent } from "./lib/product-analytics.js";
+import { getClicksQuotaFlagKey } from "./lib/usage.js";
 import { dispatchWebhookEvent } from "./lib/webhook-dispatcher.js";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -463,7 +460,7 @@ app.get("/:slug", async (c, next) => {
         shortUrl: `https://${link.domain}/${link.slug}`,
         reason: link.disabledReason ?? "This link has been disabled for safety reasons.",
       }),
-      { status: 410 },
+      { status: 410 }
     );
   }
 
@@ -606,11 +603,28 @@ app.get("/:slug", async (c, next) => {
         const trackAnalytics = link.trackAnalytics !== false; // Default to true
         const isBot = detectBot(c.req.raw);
 
+        // Free-tier click-quota degrade: the daily usage cron flags free
+        // accounts at/over their tracked-clicks limit (lib/usage.ts). Flagged
+        // accounts keep working redirects and the click counter, but skip the
+        // expensive per-click writes (D1 click row, KV dedup, Analytics
+        // Engine) until the flag expires at month rollover or an upgrade
+        // deletes it. Paid plans are never flagged — overage bills via the
+        // Stripe meter instead. This read runs inside waitUntil, so it never
+        // delays the redirect response.
+        let quotaExceeded = false;
+        if (!skipTrack && trackAnalytics) {
+          const quotaScope = link.organizationId ?? link.userId;
+          if (quotaScope) {
+            quotaExceeded = (await c.env.LINKS_KV.get(getClicksQuotaFlagKey(quotaScope))) !== null;
+          }
+        }
+
         // Skip tracking if:
         // 1. User opted out (no-track header/param)
         // 2. Link has analytics disabled
-        // 3. Request is from a bot (but still count the click)
-        if (skipTrack || !trackAnalytics) {
+        // 3. Free account is over its tracked-clicks quota
+        // 4. Request is from a bot (but still count the click)
+        if (skipTrack || !trackAnalytics || quotaExceeded) {
           // Still increment click count even if not tracking details
           const { drizzle } = await import("drizzle-orm/d1");
           const { sql, eq } = await import("drizzle-orm");
@@ -789,12 +803,6 @@ app.get("/:slug", async (c, next) => {
           }
         }
 
-        // Cache click ID for immediate access (before Analytics Engine ingestion)
-        if (c.env.LINKS_KV) {
-          const recentClickKey = `click:recent:${link.domain}:${link.slug}`;
-          await c.env.LINKS_KV.put(recentClickKey, metadata.clickId, { expirationTtl: 86400 }); // 1 day
-        }
-
         // Product analytics: fire link_clicked to PostHog/GA4 only for unique
         // visits, attributed to the link OWNER's distinctId. This keeps the
         // funnel (signup → link_created → link_clicked → conversion) meaningful
@@ -820,7 +828,7 @@ app.get("/:slug", async (c, next) => {
                 utmMedium: metadata.utmMedium ?? null,
                 utmCampaign: metadata.utmCampaign ?? null,
               },
-            }),
+            })
           );
         }
 
@@ -875,18 +883,14 @@ app.get("/:slug", async (c, next) => {
       enabled: p.enabled,
     }));
     c.executionCtx.waitUntil(
-      logToAxiom(
-        c.env,
-        "pixel.interstitial.served",
-        {
-          linkId: link.id,
-          slug: link.slug,
-          domain: link.domain,
-          country: (c.req.raw.cf as { country?: string } | undefined)?.country,
-          requireConsent: !!link.requirePixelConsent,
-          pixels: pixelSummary,
-        },
-      ).catch(() => {
+      logToAxiom(c.env, "pixel.interstitial.served", {
+        linkId: link.id,
+        slug: link.slug,
+        domain: link.domain,
+        country: (c.req.raw.cf as { country?: string } | undefined)?.country,
+        requireConsent: !!link.requirePixelConsent,
+        pixels: pixelSummary,
+      }).catch(() => {
         /* never let logging break a redirect */
       })
     );
@@ -922,11 +926,14 @@ app.get("/:slug", async (c, next) => {
   //
   // Crawlers / preview bots get the interstitial (noindex), so the
   // destination URL is never indexed via go2.gg's path even if a slug leaks.
-  const ageMs = link.createdAt ? Date.now() - new Date(link.createdAt).getTime() : Number.POSITIVE_INFINITY;
+  const ageMs = link.createdAt
+    ? Date.now() - new Date(link.createdAt).getTime()
+    : Number.POSITIVE_INFINITY;
   const isNewLink = ageMs < 60 * 60 * 1000;
   const isGuest = link.userId == null;
   const isUnverified = link.threatStatus !== "clean";
-  const showInterstitial = isUnverified && (isNewLink || isGuest || link.threatStatus === "unknown");
+  const showInterstitial =
+    isUnverified && (isNewLink || isGuest || link.threatStatus === "unknown");
 
   if (showInterstitial) {
     return c.html(
@@ -936,7 +943,7 @@ app.get("/:slug", async (c, next) => {
         // don't want to leak click IDs on the preview screen.
         destination: baseDestination,
         reason: link.threatStatus === "unknown" ? "unknown_threat" : "new_link",
-      }),
+      })
     );
   }
 
@@ -1370,16 +1377,13 @@ export default {
                   .where(
                     and(
                       eq(schema.subscriptions.organizationId, row.organizationId),
-                      eq(schema.subscriptions.status, "active"),
-                    ),
+                      eq(schema.subscriptions.status, "active")
+                    )
                   )
                   .limit(1);
-                const plan = (sub[0]?.plan as
-                  | "free"
-                  | "pro"
-                  | "business"
-                  | "enterprise"
-                  | undefined) ?? "free";
+                const plan =
+                  (sub[0]?.plan as "free" | "pro" | "business" | "enterprise" | undefined) ??
+                  "free";
 
                 const result = await pruneClicksForOrg(db, row.organizationId, plan);
                 totalDeleted += result.deleted;
@@ -1391,7 +1395,7 @@ export default {
             } catch (error) {
               console.error("Failed to prune clicks:", error);
             }
-          })(),
+          })()
         );
         break;
 
@@ -1449,7 +1453,7 @@ export default {
                 const result = await rescanLinkBatch(env, db);
                 if (result.flagged > 0 || result.bailedOnBudget) {
                   console.log(
-                    `[cron] threat rescan: scanned=${result.scanned} flagged=${result.flagged} notified=${result.notified} bailedOnBudget=${result.bailedOnBudget}`,
+                    `[cron] threat rescan: scanned=${result.scanned} flagged=${result.flagged} notified=${result.notified} bailedOnBudget=${result.bailedOnBudget}`
                   );
                 }
               } catch (error) {
@@ -1522,7 +1526,9 @@ export default {
                 recordAlertSent,
                 getCurrentMonthStart,
                 getPlanDisplayName,
+                secondsUntilMonthEnd,
               } = await import("./lib/usage.js");
+              const { planLimits } = await import("@repo/config/pricing");
 
               // Get all organizations with active subscriptions
               const orgs = await db
@@ -1555,6 +1561,28 @@ export default {
                 // Get usage
                 const usage = await getOrgUsage(db, owner[0].userId, org.id);
                 const alerts = checkUsageAlerts(usage);
+
+                // Free-tier click-quota degrade: flag free accounts at/over
+                // their tracked-clicks limit so the redirect hot path stops
+                // paying for detailed analytics writes. The TTL expires the
+                // flag at month rollover (quota reset); upgrades delete it via
+                // the Stripe webhook. Paid plans bill overage via the meter
+                // and are never flagged. Flag both scopes — org links carry
+                // organizationId, personal links only userId.
+                if (
+                  usage.plan === "free" &&
+                  usage.trackedClicksThisMonth >= planLimits.free.trackedClicksPerMonth
+                ) {
+                  const ttl = secondsUntilMonthEnd();
+                  await Promise.all([
+                    env.LINKS_KV.put(getClicksQuotaFlagKey(org.id), "1", {
+                      expirationTtl: ttl,
+                    }),
+                    env.LINKS_KV.put(getClicksQuotaFlagKey(owner[0].userId), "1", {
+                      expirationTtl: ttl,
+                    }),
+                  ]);
+                }
 
                 const monthStart = getCurrentMonthStart();
 

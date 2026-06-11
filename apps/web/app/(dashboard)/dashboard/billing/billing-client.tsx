@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -10,11 +10,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "sonner";
 import { Check, Loader2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 interface Plan {
   id: string;
@@ -244,13 +244,13 @@ export function BillingClient({ plans }: BillingClientProps) {
       {/* Available Plans */}
       <div>
         <h2 className="mb-4 font-semibold text-xl">Available Plans</h2>
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
           {plans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
             const isUpgrading = upgrading === plan.id;
 
             // Plan hierarchy for comparison
-            const planOrder = { free: 0, pro: 1, business: 2, enterprise: 3 };
+            const planOrder = { free: 0, pro: 1, business: 2, scale: 3, enterprise: 4 };
             const currentPlanOrder = planOrder[currentPlan as keyof typeof planOrder] ?? 0;
             const thisPlanOrder = planOrder[plan.id as keyof typeof planOrder] ?? 0;
             const isDowngrade = thisPlanOrder < currentPlanOrder;

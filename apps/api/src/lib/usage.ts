@@ -10,10 +10,10 @@
  * - teamMembers: Team members (for Business+)
  */
 
-import { eq, and, sql, gte } from "drizzle-orm";
-import type { DrizzleD1Database } from "drizzle-orm/d1";
+import { type PlanId, planLimits } from "@repo/config/pricing";
 import * as schema from "@repo/db";
-import { planLimits, type PlanId } from "@repo/config/pricing";
+import { and, eq, gte, sql } from "drizzle-orm";
+import type { DrizzleD1Database } from "drizzle-orm/d1";
 
 export interface OrgUsage {
   linksThisMonth: number;
@@ -81,9 +81,7 @@ export async function getOrgUsage(
           clicks: sql<number>`COUNT(*)`,
         })
         .from(schema.clicks)
-        .where(
-          and(eq(schema.clicks.userId, userId), gte(schema.clicks.timestamp, monthStart))
-        );
+        .where(and(eq(schema.clicks.userId, userId), gte(schema.clicks.timestamp, monthStart)));
 
   // Query domains
   const domainsQuery = organizationId
@@ -363,7 +361,31 @@ export function getPlanDisplayName(plan: PlanId): string {
     free: "Free",
     pro: "Pro",
     business: "Business",
+    scale: "Scale",
     enterprise: "Enterprise",
   };
   return names[plan] || "Free";
+}
+
+// -----------------------------------------------------------------------------
+// Free-tier click-quota degrade
+// -----------------------------------------------------------------------------
+//
+// Paid plans soft-limit via the Stripe usage meter (overage bills at $0.40/1K),
+// so they are never flagged here. Free accounts have no billing relationship to
+// absorb overage, so once the daily usage cron sees trackedClicksThisMonth at or
+// over the plan limit it writes this KV flag. The redirect hot path checks it
+// inside the async tracking branch and degrades to counter-only tracking
+// (redirects are never blocked; detailed analytics stop until the flag expires).
+// The TTL lands on the month rollover, so quota resets need no unflag pass; the
+// Stripe webhook deletes the flag immediately on upgrade.
+
+export function getClicksQuotaFlagKey(scopeId: string): string {
+  return `quota:clicks-exceeded:${scopeId}`;
+}
+
+/** Seconds from now until the first instant of next month (UTC), min 60. */
+export function secondsUntilMonthEnd(now: Date = new Date()): number {
+  const nextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  return Math.max(60, Math.ceil((nextMonth.getTime() - now.getTime()) / 1000));
 }

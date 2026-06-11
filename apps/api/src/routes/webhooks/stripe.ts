@@ -5,11 +5,13 @@
  * All events are verified using Stripe's webhook signature.
  */
 
-import { Hono } from "hono";
-import Stripe from "stripe";
-import { drizzle } from "drizzle-orm/d1";
+import { pricingPlans } from "@repo/config/pricing";
 import * as schema from "@repo/db";
 import { createD1Repositories } from "@repo/db/d1";
+import { and, eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import { Hono } from "hono";
+import Stripe from "stripe";
 import type { Env } from "../../bindings.js";
 import {
   creditAffiliateForInvoice,
@@ -41,13 +43,17 @@ type SubscriptionPlan = "free" | "pro" | "business" | "scale" | "enterprise";
 
 function getPlanFromPriceId(priceId: string): SubscriptionPlan {
   const plan = PRICE_TO_PLAN[priceId];
-  if (
-    plan === "pro" ||
-    plan === "business" ||
-    plan === "scale" ||
-    plan === "enterprise"
-  ) {
+  if (plan === "pro" || plan === "business" || plan === "scale" || plan === "enterprise") {
     return plan;
+  }
+
+  // Env-provisioned prices (e.g. Scale, re-provisioned accounts) resolve via
+  // the pricing config, which reads STRIPE_PRICE_* at startup.
+  const configPlan = pricingPlans.find(
+    (p) => p.stripePriceIdMonthly === priceId || p.stripePriceIdAnnual === priceId
+  );
+  if (configPlan?.id === "pro" || configPlan?.id === "business" || configPlan?.id === "scale") {
+    return configPlan.id;
   }
 
   // Fallback: try to extract plan from price ID pattern
@@ -244,9 +250,12 @@ async function handleSubscriptionUpdated(
 ) {
   const existingSub = await repos.subscriptions.findByStripeSubscriptionId(subscription.id);
   // Subscriptions now carry two items — the flat plan price and a metered
-  // overage price. Determine the plan from the flat item (the one mapped in
-  // PRICE_TO_PLAN); the overage price must not be mistaken for the plan.
-  const flatItem = subscription.items.data.find((it) => PRICE_TO_PLAN[it.price.id]);
+  // overage price. Determine the plan from the flat (non-metered) item; the
+  // overage price must not be mistaken for the plan. Matching on usage_type
+  // also covers env-provisioned prices absent from PRICE_TO_PLAN.
+  const flatItem = subscription.items.data.find(
+    (it) => it.price.recurring?.usage_type !== "metered"
+  );
   const priceId = flatItem?.price.id ?? subscription.items.data[0]?.price.id ?? "";
   const plan = getPlanFromPriceId(priceId);
 
@@ -284,10 +293,8 @@ async function handleSubscriptionUpdated(
   // "the current plan"; anything else (canceled, past_due, etc.) reverts to
   // free retention.
   if (organizationId) {
-    const effectivePlan: "free" | "pro" | "business" | "enterprise" =
-      subData.status === "active" || subData.status === "trialing"
-        ? (plan as "free" | "pro" | "business" | "enterprise")
-        : "free";
+    const effectivePlan: SubscriptionPlan =
+      subData.status === "active" || subData.status === "trialing" ? plan : "free";
     try {
       const db = drizzle(env.DB, { schema });
       const result = await applyRetentionForOrg(db, organizationId, effectivePlan);
@@ -297,11 +304,14 @@ async function handleSubscriptionUpdated(
       console.error(`Failed to apply retention for org ${organizationId}:`, error);
     }
 
+    if (effectivePlan !== "free") {
+      await clearClickQuotaFlags(env, organizationId);
+    }
+
     // Funnel event — fire on plan changes (new sub, upgrade, downgrade, cancel).
     const previousPlan = existingSub?.plan ?? "free";
     if (previousPlan !== plan) {
-      const eventName =
-        rank(plan) > rank(previousPlan) ? "plan_upgraded" : "plan_downgraded";
+      const eventName = rank(plan) > rank(previousPlan) ? "plan_upgraded" : "plan_downgraded";
       await captureEvent(env, {
         event: eventName,
         distinctId: organizationId,
@@ -317,13 +327,42 @@ async function handleSubscriptionUpdated(
   }
 }
 
+// A paid plan absorbs click overage through the usage meter, so the free-tier
+// degrade flag written by the usage cron must lift immediately on upgrade —
+// both the org-scoped flag and the owner's personal-scope flag (links created
+// outside an org carry only userId).
+async function clearClickQuotaFlags(env: Env, organizationId: string): Promise<void> {
+  if (!env.LINKS_KV) return;
+  try {
+    const { getClicksQuotaFlagKey } = await import("../../lib/usage.js");
+    const deletions = [env.LINKS_KV.delete(getClicksQuotaFlagKey(organizationId))];
+    const db = drizzle(env.DB, { schema });
+    const owner = await db
+      .select({ userId: schema.organizationMembers.userId })
+      .from(schema.organizationMembers)
+      .where(
+        and(
+          eq(schema.organizationMembers.organizationId, organizationId),
+          eq(schema.organizationMembers.role, "owner")
+        )
+      )
+      .limit(1);
+    if (owner[0]) {
+      deletions.push(env.LINKS_KV.delete(getClicksQuotaFlagKey(owner[0].userId)));
+    }
+    await Promise.all(deletions);
+  } catch (error) {
+    console.error(`Failed to clear click-quota flag for org ${organizationId}:`, error);
+  }
+}
+
 function rank(plan: string): number {
   switch (plan) {
     case "enterprise":
       return 4;
-    case "business":
-      return 3;
     case "scale":
+      return 3;
+    case "business":
       return 2;
     case "pro":
       return 1;
@@ -351,10 +390,7 @@ async function handleSubscriptionDeleted(
       if (result.stamped > 0) {
       }
     } catch (error) {
-      console.error(
-        `Failed to apply free retention for org ${existingSub.organizationId}:`,
-        error
-      );
+      console.error(`Failed to apply free retention for org ${existingSub.organizationId}:`, error);
     }
 
     await captureEvent(env, {
@@ -374,7 +410,6 @@ async function handleInvoicePaid(
   invoice: Stripe.Invoice,
   env: Env
 ) {
-
   // Resolve any dunning records for this invoice
   try {
     const { resolveDunning } = await import("../../lib/dunning.js");
@@ -486,7 +521,6 @@ async function handlePaymentSuccess(
   _paymentIntent: Stripe.PaymentIntent,
   _env: Env
 ) {
-
   // The actual purchase record is created in checkout.session.completed
   // This event is mainly for logging and additional processing if needed
 }

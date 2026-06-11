@@ -8,10 +8,12 @@ compatibility_flags = ["nodejs_compat_v2"]
 keep_names = false
 
 # Workers Logs — backup tail buffer in the CF dashboard.
-# Filtered structured events still tunnel to Axiom via lib/axiom.ts.
+# Filtered structured events still tunnel to Axiom via lib/axiom.ts at 100%,
+# so the tail buffer is sampled to cap Workers Logs spend (20M included/mo,
+# $0.60/M after; 1.0 sampling doubles billable events per request at scale).
 [observability]
 enabled = true
-head_sampling_rate = 1.0
+head_sampling_rate = 0.1
 
 [dev]
 port = 8787

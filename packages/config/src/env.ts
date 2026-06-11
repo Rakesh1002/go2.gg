@@ -51,8 +51,11 @@ const serverEnvSchema = z.object({
   STRIPE_PRICE_PRO_ANNUAL: z.string().optional(),
   STRIPE_PRICE_BUSINESS_MONTHLY: z.string().optional(),
   STRIPE_PRICE_BUSINESS_ANNUAL: z.string().optional(),
+  STRIPE_PRICE_SCALE_MONTHLY: z.string().optional(),
+  STRIPE_PRICE_SCALE_ANNUAL: z.string().optional(),
   STRIPE_OVERAGE_PRICE_PRO: z.string().optional(),
   STRIPE_OVERAGE_PRICE_BUSINESS: z.string().optional(),
+  STRIPE_OVERAGE_PRICE_SCALE: z.string().optional(),
   STRIPE_METERED_PRICE_ID_SCALE: z.string().optional(),
 
   // PostHog (server-side)

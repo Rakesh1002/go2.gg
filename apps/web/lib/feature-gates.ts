@@ -200,7 +200,8 @@ const planHierarchy: Record<PlanId, number> = {
   free: 0,
   pro: 1,
   business: 2,
-  enterprise: 3,
+  scale: 3,
+  enterprise: 4,
 };
 
 /**
@@ -253,6 +254,7 @@ export function getPlanDisplayName(plan: PlanId): string {
     free: "Free",
     pro: "Pro",
     business: "Business",
+    scale: "Scale",
     enterprise: "Enterprise",
   };
   return names[plan];

@@ -66,6 +66,21 @@ const plans = [
       "Dedicated support + 99.9% SLA",
     ],
   },
+  {
+    id: "scale",
+    name: "Scale",
+    price: 99,
+    priceId: getStripePriceId("scale", false),
+    description: "High-volume agent fleets and platforms",
+    features: [
+      "Everything in Business",
+      "1M attributed events / month included",
+      "$0.40 / 1K events beyond that",
+      "Volume discounts at 10M+ events",
+      "5-year analytics retention",
+      "Priority engineering support",
+    ],
+  },
 ];
 
 function UsageSection() {

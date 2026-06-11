@@ -16,10 +16,11 @@ compatibility_flags = ["nodejs_compat"]
 
 # Workers Logs — backup tail buffer in the CF dashboard.
 # Frontend errors are filtered + tunneled to Axiom via /api/v1/log
-# (see apps/web/lib/logger.ts → apps/api/src/routes/v1/log.ts).
+# (see apps/web/lib/logger.ts → apps/api/src/routes/v1/log.ts), so the
+# tail buffer is sampled to cap Workers Logs spend.
 [observability]
 enabled = true
-head_sampling_rate = 1.0
+head_sampling_rate = 0.1
 
 # Assets (static files)
 [assets]

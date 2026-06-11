@@ -142,19 +142,21 @@ export const pricingPlans: PricingPlan[] = [
   {
     id: "scale",
     name: "Scale",
-    description: "High-volume operations above 500K events/mo",
-    priceMonthly: null,
-    priceAnnual: null,
-    stripePriceIdMonthly: null,
-    stripePriceIdAnnual: null,
-    stripeOveragePriceId: null,
-    cta: "Contact sales",
-    ctaLink: "/contact?plan=scale",
+    description: "High-volume operations — 1M events/mo included, then usage-based",
+    priceMonthly: 99,
+    priceAnnual: 950,
+    stripePriceIdMonthly: process.env.STRIPE_PRICE_SCALE_MONTHLY ?? null,
+    stripePriceIdAnnual: process.env.STRIPE_PRICE_SCALE_ANNUAL ?? null,
+    stripeOveragePriceId: process.env.STRIPE_OVERAGE_PRICE_SCALE ?? null,
+    // Self-serve once the Scale prices are provisioned (stripe-setup.mjs) and
+    // exposed via env; until then the card falls back to the sales contact.
+    cta: process.env.STRIPE_PRICE_SCALE_MONTHLY ? "Get started" : "Contact sales",
+    ctaLink: process.env.STRIPE_PRICE_SCALE_MONTHLY ? null : "/contact?plan=scale",
     features: [
       { name: "Everything in Business", included: true },
-      { name: "Usage-based: $0.40 / 1K events", included: true },
+      { name: "Attributed events", included: true, limit: "1M/mo included" },
+      { name: "Usage overage", included: true, limit: "$0.40/1K events beyond 1M" },
       { name: "Volume discounts at 10M+ events/mo", included: true },
-      { name: "Custom event meter", included: true },
       { name: "5-year analytics retention", included: true },
       { name: "Priority engineering support", included: true },
       { name: "AGPL self-host or commercial license", included: true },
@@ -322,6 +324,21 @@ export const planLimits = {
     bioPages: 10,
     tags: -1, // Unlimited
     folders: 25,
+    linkRetentionDays: null as number | null,
+  },
+  scale: {
+    // Scale is usage-based: tracked clicks above the included 1M/mo bill
+    // through the Stripe meter rather than being blocked, so the click limit
+    // here is a high abuse backstop, not a product wall.
+    linksPerMonth: 100000,
+    trackedClicksPerMonth: 50000000,
+    domains: 100,
+    analyticsRetentionDays: 1825, // 5 years
+    apiRateLimit: 10000,
+    teamMembers: 100,
+    bioPages: 100,
+    tags: -1, // Unlimited
+    folders: -1, // Unlimited
     linkRetentionDays: null as number | null,
   },
   enterprise: {

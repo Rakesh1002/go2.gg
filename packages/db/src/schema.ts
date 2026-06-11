@@ -827,18 +827,18 @@ export const clicks = sqliteTable(
       .notNull()
       .default(sql`(datetime('now'))`),
   },
+  // D1 bills one "row written" per index entry, so every secondary index here
+  // adds ~$1 per million clicks plus storage. Keep only indexes that serve a
+  // WHERE predicate somewhere in the codebase. Per-dimension analytics
+  // aggregations (country/device/browser/os/referrer/trigger) always filter by
+  // linkId/org + timestamp first — SQLite uses a single index per table
+  // access, so standalone dimension indexes were never chosen by those query
+  // plans (see migration 0019 and docs/product/cost-benefit-analysis.md).
   (table) => [
     index("clicks_link_idx").on(table.linkId),
     index("clicks_user_idx").on(table.userId),
     index("clicks_org_idx").on(table.organizationId),
     index("clicks_timestamp_idx").on(table.timestamp),
-    index("clicks_country_idx").on(table.country),
-    index("clicks_device_idx").on(table.device),
-    index("clicks_browser_idx").on(table.browser),
-    index("clicks_os_idx").on(table.os),
-    index("clicks_referrer_idx").on(table.referrerDomain),
-    index("clicks_trigger_idx").on(table.trigger),
-    index("clicks_identity_idx").on(table.identityHash),
     index("clicks_agent_id_idx").on(table.agentId),
     index("clicks_agent_run_id_idx").on(table.agentRunId),
   ],

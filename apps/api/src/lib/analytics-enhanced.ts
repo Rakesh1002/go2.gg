@@ -567,14 +567,6 @@ export function getDeduplicationKey(domain: string, slug: string, identityHash: 
   return `click:dedup:${domain}:${slug}:${identityHash}`;
 }
 
-/**
- * Generate cache key for recent click ID lookup
- * Format: click:id:{domain}:{slug}
- */
-export function getRecentClickKey(domain: string, slug: string): string {
-  return `click:recent:${domain}:${slug}`;
-}
-
 // =============================================================================
 // No-Track Detection
 // =============================================================================

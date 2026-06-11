@@ -5,13 +5,12 @@
  * Mirror of the web app's plan-capabilities.ts for API-side checks.
  */
 
-import { planLimits, type PlanId } from "@repo/config/pricing";
+import { type PlanId, planLimits } from "@repo/config/pricing";
 
 const KNOWN_PLANS = new Set<string>(Object.keys(planLimits));
 
 export function normalizePlan(plan: string | undefined | null): PlanId {
   if (!plan) return "free";
-  if (plan === "scale") return "business";
   if (plan === "starter") return "pro";
   if (KNOWN_PLANS.has(plan)) return plan as PlanId;
   return "free";
@@ -68,9 +67,10 @@ export function getPlanCapabilities(plan: string | undefined | null): PlanCapabi
     canUseRealTimeAnalytics: !["free", "pro"].includes(p),
     canManageFolderPermissions: !["free", "pro"].includes(p),
 
-    // Enterprise features
-    canExportAuditLogs: ["enterprise"].includes(p),
-    canUseSSO: ["enterprise"].includes(p),
+    // Scale/Enterprise features (mirrors billing entitlements: Scale gets
+    // SSO + audit on top of everything in Business)
+    canExportAuditLogs: ["scale", "enterprise"].includes(p),
+    canUseSSO: ["scale", "enterprise"].includes(p),
   };
 }
 
