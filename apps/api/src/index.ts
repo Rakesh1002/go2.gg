@@ -268,7 +268,11 @@ app.use("*", async (c, next) => {
     !c.req.header("next-router-prefetch");
 
   if (!cacheable) {
-    return c.env.WEB.fetch(c.req.raw);
+    // Re-wrap: service-binding responses carry immutable headers, and outer
+    // middleware (timing) appends to them after this returns — passing the
+    // raw response through 500s with "Can't modify immutable headers".
+    const upstream = await c.env.WEB.fetch(c.req.raw);
+    return new Response(upstream.body, upstream);
   }
 
   // Markdown content negotiation serves a different body on / and /pricing;
@@ -1219,7 +1223,7 @@ app.get("/", (c) => {
 // 404 Handler
 // -----------------------------------------------------------------------------
 
-app.notFound((c) => {
+app.notFound(async (c) => {
   // Apex fall-through: a single segment that didn't resolve as a short link
   // can still be a web asset or page (/icon.svg, /agents), so the web worker
   // gets the final word. The x-go2-apex-fallthrough header breaks the loop
@@ -1232,7 +1236,8 @@ app.notFound((c) => {
     // The web worker owns the headers on this response — see the security
     // headers middleware, which skips stamping when this flag is set.
     c.set("apexWebFallthrough", true);
-    return c.env.WEB.fetch(forwarded);
+    const upstream = await c.env.WEB.fetch(forwarded);
+    return new Response(upstream.body, upstream);
   }
   return c.json(
     {
