@@ -47,9 +47,10 @@ const serverEnvSchema = z.object({
   // Stripe
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
-  STRIPE_PRICE_ID_STARTER: z.string().optional(),
-  STRIPE_PRICE_ID_PRO: z.string().optional(),
-  STRIPE_PRICE_ID_ENTERPRISE: z.string().optional(),
+  STRIPE_PRICE_PRO_MONTHLY: z.string().optional(),
+  STRIPE_PRICE_PRO_ANNUAL: z.string().optional(),
+  STRIPE_PRICE_BUSINESS_MONTHLY: z.string().optional(),
+  STRIPE_PRICE_BUSINESS_ANNUAL: z.string().optional(),
 
   // PostHog (server-side)
   POSTHOG_PERSONAL_API_KEY: z.string().optional(),

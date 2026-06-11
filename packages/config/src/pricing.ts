@@ -85,8 +85,8 @@ export const pricingPlans: PricingPlan[] = [
     description: "Indie builders, agencies, and small teams shipping daily",
     priceMonthly: 9,
     priceAnnual: 86,
-    stripePriceIdMonthly: process.env.STRIPE_PRICE_PRO_MONTHLY ?? "price_1StPxBKhC7le8Qv5GZJLpbSE",
-    stripePriceIdAnnual: process.env.STRIPE_PRICE_PRO_ANNUAL ?? "price_1StPxCKhC7le8Qv5tZmIkrfr",
+    stripePriceIdMonthly: process.env.STRIPE_PRICE_PRO_MONTHLY ?? "price_1TgyYu43jurh1T6btCXxDvfE",
+    stripePriceIdAnnual: process.env.STRIPE_PRICE_PRO_ANNUAL ?? "price_1TgyYu43jurh1T6bVJMu9GM9",
     recommended: true,
     cta: "Start 14-day trial",
     features: [
@@ -109,9 +109,9 @@ export const pricingPlans: PricingPlan[] = [
     priceMonthly: 49,
     priceAnnual: 470,
     stripePriceIdMonthly:
-      process.env.STRIPE_PRICE_BUSINESS_MONTHLY ?? "price_1SviefKhC7le8Qv5J0S9rtEG",
+      process.env.STRIPE_PRICE_BUSINESS_MONTHLY ?? "price_1TgyYw43jurh1T6brxnKqpg6",
     stripePriceIdAnnual:
-      process.env.STRIPE_PRICE_BUSINESS_ANNUAL ?? "price_1SvielKhC7le8Qv59j7SgNkS",
+      process.env.STRIPE_PRICE_BUSINESS_ANNUAL ?? "price_1TgyYx43jurh1T6bkOVdlYup",
     cta: "Get started",
     features: [
       { name: "Tracked links", included: true, limit: "20K/month" },

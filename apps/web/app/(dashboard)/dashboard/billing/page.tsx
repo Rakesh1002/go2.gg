@@ -1,11 +1,12 @@
-import type { Metadata } from "next";
-import { Suspense } from "react";
-import { redirect } from "next/navigation";
-import { getServerUser } from "@/lib/auth/server";
-import { BillingClient } from "./billing-client";
 import { UsageCardClient } from "@/components/billing";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getServerUser } from "@/lib/auth/server";
+import { getStripePriceId } from "@repo/config";
+import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+import { Suspense } from "react";
+import { BillingClient } from "./billing-client";
 
 export const metadata: Metadata = {
   title: "Billing",
@@ -34,7 +35,7 @@ const plans = [
     id: "pro",
     name: "Pro",
     price: 9,
-    priceId: process.env.STRIPE_PRICE_ID_PRO ?? "price_pro",
+    priceId: getStripePriceId("pro", false),
     description: "Indie AI app shipping its first agent",
     features: [
       "2K tracked links / month",
@@ -52,7 +53,7 @@ const plans = [
     id: "business",
     name: "Business",
     price: 49,
-    priceId: process.env.STRIPE_PRICE_ID_BUSINESS ?? "price_business",
+    priceId: getStripePriceId("business", false),
     description: "Funded AI startup with a team",
     features: [
       "20K tracked links / month",

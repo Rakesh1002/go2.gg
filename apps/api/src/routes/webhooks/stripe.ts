@@ -24,24 +24,17 @@ import {
 } from "../../lib/stripe-attribution.js";
 
 // Price ID to Plan mapping
-// Go2.gg products under Roushan, Inc. Stripe account
+// Go2.gg products under acct_1TgyIg43jurh1T6b — keep in sync with
+// scripts/stripe-setup.mjs and @repo/config/pricing.
 const PRICE_TO_PLAN: Record<string, string> = {
   // Go2 Pro - $9/mo or $86/year
-  price_1StPxBKhC7le8Qv5GZJLpbSE: "pro", // Pro Monthly
-  price_1StPxCKhC7le8Qv5tZmIkrfr: "pro", // Pro Annual
-  // Go2 Business - $49/mo or $470/year (current pricing)
-  price_1SviefKhC7le8Qv5J0S9rtEG: "business", // Business Monthly $49
-  price_1SvielKhC7le8Qv59j7SgNkS: "business", // Business Annual $470
-  // Legacy Business prices (for existing subscribers - keep for backwards compat)
-  price_1StRhYKhC7le8Qv5Dk1Bq0St: "business", // Business Monthly (legacy)
-  price_1StRhYKhC7le8Qv5JZpEy18W: "business", // Business Annual (legacy)
-  price_1StPxCKhC7le8Qv5UThExH2B: "business", // Business Monthly (legacy $24)
-  price_1StPxDKhC7le8Qv5Z13t5TDG: "business", // Business Annual (legacy $230)
-  // Go2 Enterprise - $499/mo or $4790/year
-  price_1StPxEKhC7le8Qv5JMeDQX7R: "enterprise", // Enterprise Monthly
-  price_1StPxFKhC7le8Qv550ckHwp1: "enterprise", // Enterprise Annual
+  price_1TgyYu43jurh1T6btCXxDvfE: "pro", // Pro Monthly
+  price_1TgyYu43jurh1T6bVJMu9GM9: "pro", // Pro Annual
+  // Go2 Business - $49/mo or $470/year
+  price_1TgyYw43jurh1T6brxnKqpg6: "business", // Business Monthly
+  price_1TgyYx43jurh1T6bkOVdlYup: "business", // Business Annual
   // Go2 Scale - usage-based via Meter (first 500K events free, then $0.40/1K)
-  price_1TQtdiKhC7le8Qv511WKTaSa: "scale",
+  price_1TgyYz43jurh1T6bOzGBALt1: "scale",
 };
 
 type SubscriptionPlan = "free" | "pro" | "business" | "scale" | "enterprise";
