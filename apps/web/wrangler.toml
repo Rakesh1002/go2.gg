@@ -74,11 +74,9 @@ NEXT_PUBLIC_SITE_NAME = "Go2"
 NEXT_PUBLIC_SITE_TAGLINE = "The agentic URL shortener"
 NEXT_PUBLIC_SITE_DESCRIPTION = "Go2 is the agentic URL shortener. Branded, tracked, revocable short links — minted from your AI agent's tool call into the workspace you already own. MCP, per-run attribution, custom domains, lifecycle controls. Edge-native on Cloudflare. Open source."
 
-# Custom domains for web app
-[[env.production.routes]]
-pattern = "go2.gg/*"
-zone_name = "go2.gg"
-
+# Custom domains for web app. The go2.gg apex is owned by the API worker
+# (fast short-link resolution; see the apex shim in apps/api/src/index.ts),
+# which forwards every non-link request back here over a service binding.
 [[env.production.routes]]
 pattern = "www.go2.gg/*"
 zone_name = "go2.gg"

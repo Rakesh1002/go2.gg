@@ -162,6 +162,13 @@ AXIOM_DATASET = "go2"
 pattern = "api.go2.gg/*"
 zone_name = "go2.gg"
 
+# The go2.gg apex routes here so short-link clicks run on this lean worker
+# instead of paying the OpenNext cold start. Non-link requests stream to the
+# web worker via the WEB service binding (apex shim in src/index.ts).
+[[env.production.routes]]
+pattern = "go2.gg/*"
+zone_name = "go2.gg"
+
 # Service binding to the web (Next.js) worker. The apex shim in src/index.ts
 # forwards every non-short-link go2.gg request to it, so short-link clicks
 # skip the OpenNext cold start while pages render exactly as before.
