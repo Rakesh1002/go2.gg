@@ -15,7 +15,8 @@ interface CreatedLink {
   shortUrl: string;
   destinationUrl: string;
   slug: string;
-  expiresAt: string;
+  // null for authenticated links (permanent); set for 24h guest links.
+  expiresAt: string | null;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787";
@@ -36,12 +37,60 @@ function getOrCreateClaimToken(): string {
   }
 }
 
+async function parseLink(res: Response): Promise<CreatedLink> {
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as {
+      error?: { message?: string };
+      message?: string;
+    };
+    throw new Error(j.error?.message ?? j.message ?? `HTTP ${res.status}`);
+  }
+  const json = (await res.json()) as { data: CreatedLink };
+  return json.data;
+}
+
+// Logged-in: mint a permanent link straight into the account.
+async function createAccountLink(destinationUrl: string): Promise<CreatedLink> {
+  const res = await fetch(`${API_URL}/api/v1/links`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ destinationUrl }),
+  });
+  return parseLink(res);
+}
+
+// Anonymous: 24h guest link tagged with a claim token for post-signup transfer.
+async function createGuestLink(
+  destinationUrl: string,
+  turnstileToken: string | null
+): Promise<CreatedLink> {
+  const res = await fetch(`${API_URL}/api/v1/public/links`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(turnstileToken ? { "cf-turnstile-response": turnstileToken } : {}),
+    },
+    body: JSON.stringify({ destinationUrl, claimToken: getOrCreateClaimToken() }),
+  });
+  return parseLink(res);
+}
+
+function statusNoteFor(saved: boolean, expiresAt: string | null): string {
+  if (saved) return "Saved to your dashboard with full analytics.";
+  if (expiresAt) {
+    return `Expires ${new Date(expiresAt).toLocaleString()} unless claimed`;
+  }
+  return "Anonymous link — sign up to keep it.";
+}
+
 export function TryItShortener() {
   const { data: session } = useSession();
   const isAuthenticated = !!session?.user;
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<CreatedLink | null>(null);
+  const [savedToAccount, setSavedToAccount] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
@@ -55,24 +104,12 @@ export function TryItShortener() {
     try {
       setSubmitting(true);
       setResult(null);
-      const claimToken = getOrCreateClaimToken();
-      const res = await fetch(`${API_URL}/api/v1/public/links`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(turnstileToken ? { "cf-turnstile-response": turnstileToken } : {}),
-        },
-        body: JSON.stringify({ destinationUrl, claimToken }),
-      });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as {
-          error?: { message?: string };
-          message?: string;
-        };
-        throw new Error(j.error?.message ?? j.message ?? `HTTP ${res.status}`);
-      }
-      const json = (await res.json()) as { data: CreatedLink };
-      setResult(json.data);
+      const link = isAuthenticated
+        ? await createAccountLink(destinationUrl)
+        : await createGuestLink(destinationUrl, turnstileToken);
+      setResult(link);
+      setSavedToAccount(isAuthenticated);
+      if (isAuthenticated) toast.success("Saved to your dashboard");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Couldn't shorten that URL";
       toast.error(msg);
@@ -130,7 +167,7 @@ export function TryItShortener() {
 
       {/* Invisible (interaction-only) — issues a token without user friction;
           the API requires it on anonymous link creation. */}
-      <Turnstile onVerify={setTurnstileToken} />
+      {!isAuthenticated && <Turnstile onVerify={setTurnstileToken} />}
 
       {result && (
         <motion.div
@@ -148,7 +185,7 @@ export function TryItShortener() {
               {result.shortUrl}
             </a>
             <p className="mt-1 text-[var(--marketing-text-muted)] text-xs">
-              Expires {new Date(result.expiresAt).toLocaleString()} unless claimed
+              {statusNoteFor(savedToAccount, result.expiresAt)}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -163,19 +200,21 @@ export function TryItShortener() {
               Copy
             </Button>
             <Link
-              href={isAuthenticated ? "/dashboard/links" : "/register?claim=guest"}
+              href={savedToAccount ? "/dashboard/links" : "/register?claim=guest"}
               className="inline-flex items-center gap-1.5 rounded-md bg-[var(--marketing-accent)] px-3 py-1.5 font-medium text-sm text-white transition hover:bg-[var(--marketing-accent-light)]"
             >
-              {isAuthenticated ? "Save to dashboard" : "Claim & track it"}
+              {savedToAccount ? "View in dashboard" : "Claim & track it"}
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
         </motion.div>
       )}
 
-      <p className="mt-3 text-center text-[var(--marketing-text-muted)] text-xs">
-        Anonymous links expire in 24 hours. Sign up free to keep them and unlock analytics.
-      </p>
+      {!isAuthenticated && (
+        <p className="mt-3 text-center text-[var(--marketing-text-muted)] text-xs">
+          Anonymous links expire in 24 hours. Sign up free to keep them and unlock analytics.
+        </p>
+      )}
     </motion.div>
   );
 }
