@@ -345,6 +345,7 @@ app.use(
       "Authorization",
       "X-Request-ID",
       "X-CSRF-Token",
+      "cf-turnstile-response",
       "RSC",
       "Next-Router-State-Tree",
       "Next-Router-Prefetch",
