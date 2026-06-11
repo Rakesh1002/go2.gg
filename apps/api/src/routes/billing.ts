@@ -11,6 +11,7 @@ import Stripe from "stripe";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "@repo/db";
 import { createD1Repositories } from "@repo/db/d1";
+import { getOveragePriceIdForPrice } from "@repo/config/pricing";
 import type { Env } from "../bindings.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { ok, badRequest, notFound } from "../lib/response.js";
@@ -85,11 +86,23 @@ billing.post("/checkout", zValidator("json", checkoutSchema), async (c) => {
     orgId = membership?.organization_id;
   }
 
+  // Attach the plan's metered overage SKU as a second line item so usage
+  // beyond the included quota bills at $0.40/1K (the meter cron reports usage).
+  // Plans without an overage SKU (Free upgrades, Scale is already metered)
+  // resolve to null and ship a single line item.
+  const overagePriceId = getOveragePriceIdForPrice(priceId);
+  const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [
+    { price: priceId, quantity: 1 },
+  ];
+  if (overagePriceId) {
+    lineItems.push({ price: overagePriceId });
+  }
+
   try {
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
       payment_method_types: ["card"],
-      line_items: [{ price: priceId, quantity: 1 }],
+      line_items: lineItems,
       success_url:
         successUrl ??
         `${c.env.APP_URL}/dashboard/billing?success=true&session_id={CHECKOUT_SESSION_ID}`,

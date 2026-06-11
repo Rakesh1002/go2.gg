@@ -40,7 +40,11 @@ import type { Env } from "../bindings.js";
 import { logEvent, logError } from "./axiom.js";
 
 const SCALE_FREE_TIER_EVENTS = 500_000; // baked into the flat fee, see /pricing
-const SCALE_REPORTABLE_PLANS = new Set(["scale", "enterprise"]);
+// Plans whose attributed events are reported to the `go2_attributed_event`
+// meter. Scale is pure usage; Pro/Business carry a graduated metered overage
+// item that bills events above their included quota. Stripe's tiers zero out
+// the included portion, so we always report the full daily count.
+const METERED_REPORTABLE_PLANS = new Set(["pro", "business", "scale", "enterprise"]);
 
 /**
  * Aggregate one calendar day's clicks for a Scale-tier org and post a
@@ -158,7 +162,7 @@ export async function runDailyScaleUsageReport(
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.status, "active"));
 
-  const targets = subs.filter((s) => SCALE_REPORTABLE_PLANS.has(s.plan));
+  const targets = subs.filter((s) => METERED_REPORTABLE_PLANS.has(s.plan));
   if (targets.length === 0) {
     return { orgs: 0, totalEvents: 0, errors: 0 };
   }

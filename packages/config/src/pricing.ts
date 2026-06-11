@@ -31,6 +31,13 @@ export interface PricingPlan {
   stripePriceIdMonthly: string | null;
   /** Stripe price ID for annual billing */
   stripePriceIdAnnual: string | null;
+  /**
+   * Stripe metered price ID for usage overage, attached as a second
+   * subscription item. Graduated tiers bill the plan's included quota at $0
+   * and every attributed event above it at $0.40/1,000. null = no overage
+   * (Free upgrades instead; Scale is already pure usage).
+   */
+  stripeOveragePriceId: string | null;
   /** Marketing-friendly features for cards (keep concise) */
   features: PricingFeature[];
   /** Highlight this plan as recommended */
@@ -67,6 +74,7 @@ export const pricingPlans: PricingPlan[] = [
     priceAnnual: 0,
     stripePriceIdMonthly: null,
     stripePriceIdAnnual: null,
+    stripeOveragePriceId: null,
     cta: "Install the MCP server",
     ctaLink: "/agents/quickstart",
     features: [
@@ -87,6 +95,7 @@ export const pricingPlans: PricingPlan[] = [
     priceAnnual: 86,
     stripePriceIdMonthly: process.env.STRIPE_PRICE_PRO_MONTHLY ?? "price_1TgyYu43jurh1T6btCXxDvfE",
     stripePriceIdAnnual: process.env.STRIPE_PRICE_PRO_ANNUAL ?? "price_1TgyYu43jurh1T6bVJMu9GM9",
+    stripeOveragePriceId: process.env.STRIPE_OVERAGE_PRICE_PRO ?? "price_1Tgyz443jurh1T6bM87ZdrWG",
     recommended: true,
     cta: "Start 14-day trial",
     features: [
@@ -100,6 +109,7 @@ export const pricingPlans: PricingPlan[] = [
       { name: "Geo + device targeting", included: true },
       { name: "1-year analytics retention", included: true },
       { name: "Priority support", included: true },
+      { name: "Usage overage", included: true, limit: "$0.40/1K events beyond 100K" },
     ],
   },
   {
@@ -112,6 +122,8 @@ export const pricingPlans: PricingPlan[] = [
       process.env.STRIPE_PRICE_BUSINESS_MONTHLY ?? "price_1TgyYw43jurh1T6brxnKqpg6",
     stripePriceIdAnnual:
       process.env.STRIPE_PRICE_BUSINESS_ANNUAL ?? "price_1TgyYx43jurh1T6bkOVdlYup",
+    stripeOveragePriceId:
+      process.env.STRIPE_OVERAGE_PRICE_BUSINESS ?? "price_1Tgyz643jurh1T6brEf93srV",
     cta: "Get started",
     features: [
       { name: "Tracked links", included: true, limit: "20K/month" },
@@ -124,6 +136,7 @@ export const pricingPlans: PricingPlan[] = [
       { name: "Team seats", included: true, limit: "10" },
       { name: "2-year analytics retention", included: true },
       { name: "Dedicated support + 99.9% SLA", included: true },
+      { name: "Usage overage", included: true, limit: "$0.40/1K events beyond 500K" },
     ],
   },
   {
@@ -134,6 +147,7 @@ export const pricingPlans: PricingPlan[] = [
     priceAnnual: null,
     stripePriceIdMonthly: null,
     stripePriceIdAnnual: null,
+    stripeOveragePriceId: null,
     cta: "Contact sales",
     ctaLink: "/contact?plan=scale",
     features: [
@@ -247,6 +261,18 @@ export function getStripePriceId(planId: string, annual: boolean): string | null
   const plan = getPlan(planId);
   if (!plan) return null;
   return annual ? plan.stripePriceIdAnnual : plan.stripePriceIdMonthly;
+}
+
+/**
+ * Resolve the metered overage price ID for a plan, given one of its flat
+ * (monthly or annual) price IDs. Returns null when the plan has no overage
+ * SKU — Free, Scale, or an unrecognized price.
+ */
+export function getOveragePriceIdForPrice(flatPriceId: string): string | null {
+  const plan = pricingPlans.find(
+    (p) => p.stripePriceIdMonthly === flatPriceId || p.stripePriceIdAnnual === flatPriceId
+  );
+  return plan?.stripeOveragePriceId ?? null;
 }
 
 /**

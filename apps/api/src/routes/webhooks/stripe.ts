@@ -243,7 +243,11 @@ async function handleSubscriptionUpdated(
   env: Env
 ) {
   const existingSub = await repos.subscriptions.findByStripeSubscriptionId(subscription.id);
-  const priceId = subscription.items.data[0]?.price.id ?? "";
+  // Subscriptions now carry two items — the flat plan price and a metered
+  // overage price. Determine the plan from the flat item (the one mapped in
+  // PRICE_TO_PLAN); the overage price must not be mistaken for the plan.
+  const flatItem = subscription.items.data.find((it) => PRICE_TO_PLAN[it.price.id]);
+  const priceId = flatItem?.price.id ?? subscription.items.data[0]?.price.id ?? "";
   const plan = getPlanFromPriceId(priceId);
 
   const subData = {
