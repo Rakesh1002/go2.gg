@@ -2,6 +2,7 @@
 
 import { Turnstile } from "@/components/turnstile";
 import { Button } from "@/components/ui/button";
+import { normalizeDestinationUrl } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { ArrowRight, Copy, Link2, Loader2, Sparkles } from "lucide-react";
 import Link from "next/link";
@@ -43,6 +44,11 @@ export function TryItShortener() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!url.trim()) return;
+    const destinationUrl = normalizeDestinationUrl(url);
+    if (!destinationUrl) {
+      toast.error("Enter a valid URL");
+      return;
+    }
     try {
       setSubmitting(true);
       setResult(null);
@@ -53,7 +59,7 @@ export function TryItShortener() {
           "content-type": "application/json",
           ...(turnstileToken ? { "cf-turnstile-response": turnstileToken } : {}),
         },
-        body: JSON.stringify({ destinationUrl: url.trim(), claimToken }),
+        body: JSON.stringify({ destinationUrl, claimToken }),
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as {
@@ -92,8 +98,12 @@ export function TryItShortener() {
         <div className="flex min-w-0 flex-1 items-center gap-2 px-3">
           <Link2 className="h-4 w-4 shrink-0 text-[var(--marketing-text-muted)]" />
           <input
-            type="url"
-            placeholder="https://your-long-url.com/..."
+            type="text"
+            inputMode="url"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            placeholder="audiopod.ai or https://your-long-url.com/..."
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             className="h-10 w-full min-w-0 flex-1 border-0 bg-transparent text-[var(--marketing-text)] text-base outline-none placeholder:text-[var(--marketing-text-muted)] focus:outline-none focus:ring-0"

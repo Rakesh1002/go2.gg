@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Copy, ExternalLink, Sparkles } from "lucide-react";
+import { normalizeDestinationUrl } from "@/lib/utils";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://api.go2.gg";
 
@@ -73,12 +74,17 @@ export function PlaygroundClient() {
 
   async function mintLink(e: React.FormEvent) {
     e.preventDefault();
+    const dest = normalizeDestinationUrl(destinationUrl);
+    if (!dest) {
+      toast.error("Enter a valid URL");
+      return;
+    }
     setCreating(true);
     try {
       const res = await fetch(`${API_URL}/api/v1/public/links`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ destinationUrl }),
+        body: JSON.stringify({ destinationUrl: dest }),
       });
       const json = (await res.json()) as
         | { success: true; data: GuestLink }
@@ -137,10 +143,14 @@ export function PlaygroundClient() {
               </label>
               <Input
                 id="dest"
-                type="url"
+                type="text"
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 value={destinationUrl}
                 onChange={(e) => setDestinationUrl(e.target.value)}
-                placeholder="https://example.com/long-article"
+                placeholder="example.com/long-article"
                 disabled={creating}
                 className="h-11"
                 required
