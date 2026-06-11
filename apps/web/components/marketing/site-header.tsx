@@ -171,9 +171,19 @@ const resourceItems = [
 export function SiteHeader() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const { data: session, isPending } = useSession();
 
   const isAuthenticated = !!session?.user;
+  // Auth is a client-only signal — the server can't know it, so it always
+  // renders the placeholder. Render the same placeholder on the first client
+  // paint (mounted === false) to avoid a hydration mismatch that would force
+  // React to regenerate the whole marketing tree.
+  const authPending = !mounted || isPending;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Track scroll position for glassmorphism effect
   useEffect(() => {
@@ -350,7 +360,7 @@ export function SiteHeader() {
           )}
 
           <div className="hidden items-center gap-3 sm:flex">
-            {isPending ? (
+            {authPending ? (
               // Loading state - show subtle placeholder
               <div className="h-9 w-24 animate-pulse rounded-full bg-[var(--marketing-accent)]/10" />
             ) : isAuthenticated ? (
@@ -483,7 +493,7 @@ export function SiteHeader() {
                 </nav>
 
                 <div className="space-y-3 border-[var(--marketing-border)] border-t bg-[var(--marketing-bg)] p-4">
-                  {isPending ? (
+                  {authPending ? (
                     <div className="h-11 w-full animate-pulse rounded-xl bg-[var(--marketing-accent)]/10" />
                   ) : isAuthenticated ? (
                     <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="block">
@@ -494,11 +504,7 @@ export function SiteHeader() {
                     </Link>
                   ) : (
                     <>
-                      <Link
-                        href="/login"
-                        onClick={() => setMobileOpen(false)}
-                        className="block"
-                      >
+                      <Link href="/login" onClick={() => setMobileOpen(false)} className="block">
                         <Button
                           variant="outline"
                           className="h-11 w-full rounded-xl border-[var(--marketing-border)] bg-transparent text-[var(--marketing-text)] hover:border-[var(--marketing-accent)] hover:bg-[var(--marketing-accent)]/10 hover:text-[var(--marketing-accent)]"

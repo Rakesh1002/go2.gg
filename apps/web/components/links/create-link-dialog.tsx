@@ -470,10 +470,6 @@ export function CreateLinkDialog({
         }
       }
 
-      // Copy to clipboard
-      await navigator.clipboard.writeText(result.data.shortUrl);
-      toast.success("Short URL copied to clipboard");
-
       // Invalidate React Query caches to update all related components
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       queryClient.invalidateQueries({ queryKey: ["links"] });
@@ -485,6 +481,13 @@ export function CreateLinkDialog({
       setAbVariants([]);
       router.push("/dashboard/links");
       router.refresh();
+
+      // Best-effort clipboard copy — it needs document focus, so never block
+      // the dialog close on it or let a rejection fail the already-created link.
+      navigator.clipboard
+        .writeText(result.data.shortUrl)
+        .then(() => toast.success("Short URL copied to clipboard"))
+        .catch(() => {});
     } catch (error) {
       console.error("Error creating link:", error);
       toast.error(error instanceof Error ? error.message : "Failed to create link");
@@ -675,9 +678,7 @@ export function CreateLinkDialog({
                         <FormControl>
                           <FolderPicker
                             value={field.value ?? null}
-                            onChange={(value) =>
-                              field.onChange(value === "none" ? null : value)
-                            }
+                            onChange={(value) => field.onChange(value === "none" ? null : value)}
                             includeNone={false}
                             placeholder="No folder"
                           />
