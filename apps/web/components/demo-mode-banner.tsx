@@ -18,7 +18,7 @@ export function DemoModeBanner() {
         </span>
       </div>
       <Link
-        href="/auth/signup"
+        href="/register"
         className="inline-flex items-center gap-1 rounded-md bg-amber-900 px-3 py-1 font-medium text-amber-50 text-xs transition hover:bg-amber-800 dark:bg-amber-200 dark:text-amber-900 dark:hover:bg-amber-100"
       >
         Sign up free

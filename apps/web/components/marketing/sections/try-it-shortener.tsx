@@ -160,7 +160,7 @@ export function TryItShortener() {
               Copy
             </Button>
             <Link
-              href="/auth/signup?claim=guest"
+              href="/register?claim=guest"
               className="inline-flex items-center gap-1.5 rounded-md bg-[var(--marketing-accent)] px-3 py-1.5 font-medium text-sm text-white transition hover:bg-[var(--marketing-accent-light)]"
             >
               Claim &amp; track it

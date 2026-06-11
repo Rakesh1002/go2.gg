@@ -8,6 +8,7 @@ import { SubscriptionProvider } from "@/contexts/subscription-context";
 import { KeyboardShortcutProvider } from "@/contexts/keyboard-shortcut-context";
 import { QueryProvider } from "@/lib/query-client";
 import { AffiliateClaimWatcher } from "./affiliate-claim-watcher";
+import { GuestLinkClaimWatcher } from "./guest-link-claim-watcher";
 import { CommandPaletteWrapper } from "./command-palette-wrapper";
 import { UpgradeBanner } from "@/components/billing";
 import { DemoModeBanner } from "@/components/demo-mode-banner";
@@ -32,6 +33,9 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
 
           {/* Once-per-session affiliate referral cookie claim */}
           <AffiliateClaimWatcher />
+
+          {/* Transfers guest "try it" links to the account after signup */}
+          <GuestLinkClaimWatcher />
 
           {/* Demo / preview mode banner (no-op unless NEXT_PUBLIC_DEMO_MODE=true) */}
           <DemoModeBanner />
