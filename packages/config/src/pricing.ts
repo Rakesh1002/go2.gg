@@ -145,13 +145,12 @@ export const pricingPlans: PricingPlan[] = [
     description: "High-volume operations — 1M events/mo included, then usage-based",
     priceMonthly: 99,
     priceAnnual: 950,
-    stripePriceIdMonthly: process.env.STRIPE_PRICE_SCALE_MONTHLY ?? null,
-    stripePriceIdAnnual: process.env.STRIPE_PRICE_SCALE_ANNUAL ?? null,
-    stripeOveragePriceId: process.env.STRIPE_OVERAGE_PRICE_SCALE ?? null,
-    // Self-serve once the Scale prices are provisioned (stripe-setup.mjs) and
-    // exposed via env; until then the card falls back to the sales contact.
-    cta: process.env.STRIPE_PRICE_SCALE_MONTHLY ? "Get started" : "Contact sales",
-    ctaLink: process.env.STRIPE_PRICE_SCALE_MONTHLY ? null : "/contact?plan=scale",
+    stripePriceIdMonthly:
+      process.env.STRIPE_PRICE_SCALE_MONTHLY ?? "price_1Th1xP43jurh1T6bHJsjxMIm",
+    stripePriceIdAnnual: process.env.STRIPE_PRICE_SCALE_ANNUAL ?? "price_1Th1xQ43jurh1T6bQrTPjDFS",
+    stripeOveragePriceId:
+      process.env.STRIPE_OVERAGE_PRICE_SCALE ?? "price_1Th1xR43jurh1T6b0AIPKr9z",
+    cta: "Get started",
     features: [
       { name: "Everything in Business", included: true },
       { name: "Attributed events", included: true, limit: "1M/mo included" },
