@@ -82,6 +82,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // The API worker already failed to resolve this slug and forwarded it here
+  // as a possible web asset/page (see its notFound handler). Nothing matched,
+  // so answer 404 instead of proxying back — that would loop.
+  if (request.headers.get("x-go2-apex-fallthrough")) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const search = request.nextUrl.search;
   // Keep the apex host on the proxied URL — links are keyed `go2.gg:<slug>`
   // in KV, so the API resolves them in a single lookup.

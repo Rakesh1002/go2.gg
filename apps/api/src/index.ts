@@ -260,7 +260,14 @@ const WEB_APP_PATHS = new Set([
   "register",
   "forgot-password",
   "reset-password",
+  "agents",
   "favicon.ico",
+  "icon.svg",
+  "icon-16.png",
+  "icon-32.png",
+  "icon-192.png",
+  "apple-touch-icon.png",
+  "og.png",
   "robots.txt",
   "sitemap.xml",
   "manifest.webmanifest",
@@ -1095,10 +1102,17 @@ app.get("/", (c) => {
 // -----------------------------------------------------------------------------
 
 app.notFound((c) => {
-  // On the apex this is only reachable via a failed slug lookup (the apex
-  // shim forwards every non-slug shape to the web worker before routing).
-  // Do NOT forward these to the web worker: its [slug] catch-all proxies
-  // them back here, which recurses until the runtime kills it (error 1101).
+  // Apex fall-through: a single segment that didn't resolve as a short link
+  // can still be a web asset or page (/icon.svg, /agents), so the web worker
+  // gets the final word. The x-go2-apex-fallthrough header breaks the loop
+  // this would otherwise create with the web [slug] catch-all, which proxies
+  // unknown slugs back here (recursing to error 1101 without it).
+  const host = c.req.header("host")?.split(":")[0]?.toLowerCase() ?? "";
+  if (c.env.WEB && isApexHost(c.env, host) && !c.req.header("x-go2-apex-fallthrough")) {
+    const forwarded = new Request(c.req.raw);
+    forwarded.headers.set("x-go2-apex-fallthrough", "1");
+    return c.env.WEB.fetch(forwarded);
+  }
   return c.json(
     {
       success: false,
