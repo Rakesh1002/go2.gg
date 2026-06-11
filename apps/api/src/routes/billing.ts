@@ -4,17 +4,17 @@
  * Stripe checkout and subscription management.
  */
 
-import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
-import Stripe from "stripe";
-import { drizzle } from "drizzle-orm/d1";
+import { getOveragePriceIdForPrice } from "@repo/config/pricing";
 import * as schema from "@repo/db";
 import { createD1Repositories } from "@repo/db/d1";
-import { getOveragePriceIdForPrice } from "@repo/config/pricing";
+import { drizzle } from "drizzle-orm/d1";
+import { Hono } from "hono";
+import Stripe from "stripe";
+import { z } from "zod";
 import type { Env } from "../bindings.js";
+import { badRequest, forbidden, notFound, ok } from "../lib/response.js";
 import { authMiddleware } from "../middleware/auth.js";
-import { ok, badRequest, notFound } from "../lib/response.js";
 
 const billing = new Hono<{ Bindings: Env }>();
 
@@ -64,8 +64,20 @@ billing.post("/checkout", zValidator("json", checkoutSchema), async (c) => {
   let customerId: string | undefined;
   let orgId = organizationId;
 
-  // If organization specified, get its Stripe customer ID
+  // If organization specified, verify the caller belongs to it — every other
+  // billing route checks membership; checkout must too, or anyone could bind
+  // a subscription to a victim org's customer record.
   if (orgId) {
+    const membership = await c.env.DB.prepare(
+      `SELECT role FROM organization_members
+         WHERE user_id = ? AND organization_id = ?
+         LIMIT 1`
+    )
+      .bind(user.id, orgId)
+      .first<{ role: string }>();
+    if (!membership) {
+      return forbidden(c, "You don't have access to this organization");
+    }
     const org = await repos.organizations.findById(orgId);
     if (org?.stripeCustomerId) {
       customerId = org.stripeCustomerId;
@@ -503,7 +515,9 @@ billing.post("/usage/report", async (c) => {
   // to report usage. For security, it should use an internal API key.
   const apiKey = c.req.header("X-Internal-API-Key");
 
-  if (apiKey !== c.env.INTERNAL_API_KEY) {
+  // Fail closed: with INTERNAL_API_KEY unset, `undefined !== undefined` let
+  // any caller omitting the header straight through.
+  if (!c.env.INTERNAL_API_KEY || !apiKey || apiKey !== c.env.INTERNAL_API_KEY) {
     return c.json(
       { success: false, error: { code: "UNAUTHORIZED", message: "Invalid API key" } },
       401

@@ -40,6 +40,7 @@ import {
 } from "../../lib/safe-browsing.js";
 import { checkSlugAbuse } from "../../lib/slug-abuse.js";
 import { generateSlug, isReservedSlug } from "../../lib/slug.js";
+import { deepLinkUrl, httpUrl } from "../../lib/url-schemas.js";
 import { checkLinkLimit, getOrgUsage } from "../../lib/usage.js";
 import { dispatchWebhookEvent } from "../../lib/webhook-dispatcher.js";
 import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
@@ -72,7 +73,7 @@ const trackingPixelSchema = z.object({
 });
 
 const createLinkSchema = z.object({
-  destinationUrl: z.string().url("Invalid URL"),
+  destinationUrl: httpUrl("Invalid URL"),
   slug: z
     .string()
     .min(1)
@@ -86,18 +87,18 @@ const createLinkSchema = z.object({
   password: z.string().min(4).max(100).optional(),
   expiresAt: z.string().datetime().optional(),
   clickLimit: z.number().int().positive().optional(),
-  geoTargets: z.record(z.string().url()).optional(),
-  deviceTargets: z.record(z.string().url()).optional(),
+  geoTargets: z.record(httpUrl()).optional(),
+  deviceTargets: z.record(httpUrl()).optional(),
   utmSource: z.string().max(100).optional(),
   utmMedium: z.string().max(100).optional(),
   utmCampaign: z.string().max(100).optional(),
   utmTerm: z.string().max(100).optional(),
   utmContent: z.string().max(100).optional(),
-  iosUrl: z.string().url().optional(),
-  androidUrl: z.string().url().optional(),
+  iosUrl: deepLinkUrl().optional(),
+  androidUrl: deepLinkUrl().optional(),
   ogTitle: z.string().max(200).optional(),
   ogDescription: z.string().max(500).optional(),
-  ogImage: z.string().url().optional(),
+  ogImage: httpUrl().optional(),
   // Retargeting pixels
   trackingPixels: z.array(trackingPixelSchema).max(10).optional(),
   enablePixelTracking: z.boolean().optional(),

@@ -89,7 +89,7 @@ import { getOpenApiSpec } from "./lib/openapi-spec.js";
 // Webhook dispatcher
 import { captureEvent } from "./lib/product-analytics.js";
 import { getClicksQuotaFlagKey } from "./lib/usage.js";
-import { dispatchWebhookEvent } from "./lib/webhook-dispatcher.js";
+import { clickWebhookFlagKey, dispatchWebhookEvent } from "./lib/webhook-dispatcher.js";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -487,11 +487,24 @@ app.get("/:slug", async (c, next) => {
   const host = c.req.header("host") ?? c.env.DEFAULT_DOMAIN ?? "go2.gg";
   const domain = host.split(":")[0]; // Remove port if present
 
-  // Fast KV lookup
+  // Fast KV lookup. cacheTtl extends the PoP-local cache from the 60s
+  // default — hot slugs stop re-fetching from KV origin every minute. The
+  // trade: safety evictions (threat-disable, ban) can take up to 300s to
+  // reach a PoP that recently served the link.
   const kvKey = `${domain}:${slug}`;
-  const cached = await c.env.LINKS_KV.get<CachedLink>(kvKey, "json");
+  const cached = await c.env.LINKS_KV.get<CachedLink | { nf: 1 }>(kvKey, {
+    type: "json",
+    cacheTtl: 300,
+  });
 
-  let link = cached;
+  // Negative-cache sentinel: this slug recently missed both KV and D1.
+  // Scanner/typo traffic short-circuits here instead of paying two D1
+  // round trips per probe. Link creation overwrites the same key.
+  if (cached && "nf" in cached) {
+    return next();
+  }
+
+  let link = cached as CachedLink | null;
   if (!link) {
     // Try lowercase fallback — forgiving for users who type slugs in any case.
     const lowerSlug = slug.toLowerCase();
@@ -510,10 +523,17 @@ app.get("/:slug", async (c, next) => {
       link = await c.env.LINKS_KV.get<CachedLink>(`${defaultDomain}:${slug}`, "json");
     }
     if (!link) {
-      link =
-        (await loadCachedLinkFromD1(c.env, domain, slug)) ??
-        (domain !== defaultDomain ? await loadCachedLinkFromD1(c.env, defaultDomain, slug) : null);
+      const [primary, crossDomain] = await Promise.all([
+        loadCachedLinkFromD1(c.env, domain, slug),
+        domain !== defaultDomain
+          ? loadCachedLinkFromD1(c.env, defaultDomain, slug)
+          : Promise.resolve(null),
+      ]);
+      link = primary ?? crossDomain;
       if (!link) {
+        c.executionCtx.waitUntil(
+          c.env.LINKS_KV.put(kvKey, JSON.stringify({ nf: 1 }), { expirationTtl: 120 })
+        );
         return next(); // Let 404 handler deal with it
       }
       const rehydrated = link;
@@ -555,21 +575,13 @@ app.get("/:slug", async (c, next) => {
     );
   }
 
-  // Enforce click limit if configured. Most links don't have one, so the DB
-  // read is only paid for limited links.
-  if (link.clickLimit != null) {
-    const { drizzle } = await import("drizzle-orm/d1");
-    const { eq } = await import("drizzle-orm");
-    const schema = await import("@repo/db");
-    const db = drizzle(c.env.DB, { schema });
-    const row = await db
-      .select({ clickCount: schema.links.clickCount })
-      .from(schema.links)
-      .where(eq(schema.links.id, link.id))
-      .limit(1);
-    if (row[0] && (row[0].clickCount ?? 0) >= link.clickLimit) {
-      return c.json({ error: "This link has reached its click limit" }, { status: 410 });
-    }
+  // Enforce click limit from the cached count. Eventually consistent by
+  // design: the tracking block below refreshes the KV entry for limited
+  // links after each count bump, so the limit trips within a click or two
+  // of the threshold instead of paying every limited click a blocking D1
+  // read before the 302. Industry-standard trade (Dub does the same).
+  if (link.clickLimit != null && (link.clickCount ?? 0) >= link.clickLimit) {
+    return c.json({ error: "This link has reached its click limit" }, { status: 410 });
   }
 
   // Password protection. A valid per-link unlock cookie (set by the verify
@@ -641,8 +653,9 @@ app.get("/:slug", async (c, next) => {
             trafficPercentage: row[0].trafficPercentage ?? 100,
             winnerVariantId: row[0].winnerVariantId ?? null,
           };
-          // Warm the cache so subsequent redirects skip D1.
-          await setABTestInKV(c.env.LINKS_KV, abState);
+          // Warm the cache so subsequent redirects skip D1. KV writes go to
+          // the central store (50-200ms) — never block the redirect on it.
+          c.executionCtx.waitUntil(setABTestInKV(c.env.LINKS_KV, abState));
         }
       }
       if (abState) {
@@ -698,12 +711,36 @@ app.get("/:slug", async (c, next) => {
           }
         }
 
+        // Limited links enforce via the cached clickCount, so the KV entry
+        // must advance after every count bump. Only links with a clickLimit
+        // pay this refetch+put — they're the rare case.
+        const refreshLimitedLinkCount = async () => {
+          if (link.clickLimit == null) {
+            return;
+          }
+          const { drizzle } = await import("drizzle-orm/d1");
+          const { eq } = await import("drizzle-orm");
+          const schema = await import("@repo/db");
+          const db = drizzle(c.env.DB, { schema });
+          const [row] = await db
+            .select()
+            .from(schema.links)
+            .where(eq(schema.links.id, link.id))
+            .limit(1);
+          if (row && !row.isArchived) {
+            const fresh = serializeCachedLink(row);
+            await c.env.LINKS_KV.put(`${fresh.domain}:${fresh.slug}`, JSON.stringify(fresh));
+          }
+        };
+
         // Skip tracking if:
         // 1. User opted out (no-track header/param)
         // 2. Link has analytics disabled
         // 3. Free account is over its tracked-clicks quota
-        // 4. Request is from a bot (but still count the click)
-        if (skipTrack || !trackAnalytics || quotaExceeded) {
+        // 4. Request is from a bot (still counted, never detailed — checking
+        //    here also skips the dedup KV ops and metadata work bots used to
+        //    pay for before their short-circuit)
+        if (skipTrack || !trackAnalytics || quotaExceeded || isBot) {
           // Still increment click count even if not tracking details
           const { drizzle } = await import("drizzle-orm/d1");
           const { sql, eq } = await import("drizzle-orm");
@@ -716,6 +753,7 @@ app.get("/:slug", async (c, next) => {
               lastClickedAt: new Date().toISOString(),
             })
             .where(eq(schema.links.id, link.id));
+          await refreshLimitedLinkCount();
           return;
         }
 
@@ -758,23 +796,6 @@ app.get("/:slug", async (c, next) => {
           }
         }
 
-        // Skip recording bot clicks in detailed analytics (but count them)
-        if (isBot) {
-          // Still increment click count for bots
-          const { drizzle } = await import("drizzle-orm/d1");
-          const { sql, eq } = await import("drizzle-orm");
-          const schema = await import("@repo/db");
-          const db = drizzle(c.env.DB, { schema });
-          await db
-            .update(schema.links)
-            .set({
-              clickCount: sql`click_count + 1`,
-              lastClickedAt: new Date().toISOString(),
-            })
-            .where(eq(schema.links.id, link.id));
-          return;
-        }
-
         // Track to Analytics Engine (for aggregated analytics)
         await trackClickEnhanced(c.env.TRACKER, metadata);
 
@@ -784,8 +805,21 @@ app.get("/:slug", async (c, next) => {
         const schema = await import("@repo/db");
         const db = drizzle(c.env.DB, { schema });
 
-        // Insert comprehensive click record into D1
-        await db.insert(schema.clicks).values({
+        // Link stat bumps, computed before the batch below
+        const updateFields: Record<string, unknown> = {
+          clickCount: sql`click_count + 1`,
+          lastClickedAt: metadata.timestamp,
+        };
+        if (isUnique) {
+          updateFields.uniqueClicks = sql`unique_clicks + 1`;
+        }
+        if (isQr) {
+          updateFields.qrScans = sql`qr_scans + 1`;
+        }
+
+        // Click insert + link stats in one D1 batch — a single round trip
+        // instead of two sequential cross-region writes per click.
+        const insertClick = db.insert(schema.clicks).values({
           id: metadata.clickId,
           linkId: metadata.linkId,
           userId: metadata.userId,
@@ -849,23 +883,13 @@ app.get("/:slug", async (c, next) => {
           timestamp: metadata.timestamp,
         });
 
-        // Update link stats
-        const updateFields: Record<string, unknown> = {
-          clickCount: sql`click_count + 1`,
-          lastClickedAt: metadata.timestamp,
-        };
+        const updateLink = db
+          .update(schema.links)
+          .set(updateFields)
+          .where(eq(schema.links.id, link.id));
 
-        // Increment unique clicks if this is a unique visit
-        if (isUnique) {
-          updateFields.uniqueClicks = sql`unique_clicks + 1`;
-        }
-
-        // Increment QR scans if this came from a QR code
-        if (isQr) {
-          updateFields.qrScans = sql`qr_scans + 1`;
-        }
-
-        await db.update(schema.links).set(updateFields).where(eq(schema.links.id, link.id));
+        await db.batch([insertClick, updateLink]);
+        await refreshLimitedLinkCount();
 
         // Bump the agent_runs row's click count so the dashboard / MCP run
         // list sees totals without rejoining clicks. Best-effort.
@@ -912,8 +936,15 @@ app.get("/:slug", async (c, next) => {
         }
 
         // Fire click webhook (gated on link ownership; only delivers to webhooks
-        // that subscribe to "click" or "*").
-        if (link.userId) {
+        // that subscribe to "click" or "*"). The KV flag — maintained by
+        // webhook CRUD — short-circuits the D1 SELECT for the common case of
+        // an owner with no click webhooks.
+        const webhookScope = link.organizationId ?? link.userId;
+        if (
+          link.userId &&
+          webhookScope &&
+          (await c.env.LINKS_KV.get(clickWebhookFlagKey(webhookScope))) !== null
+        ) {
           await dispatchWebhookEvent(c.env, link.userId, link.organizationId, "click", {
             clickId: metadata.clickId,
             linkId: link.id,
@@ -1234,7 +1265,8 @@ app.notFound(async (c) => {
     const forwarded = new Request(c.req.raw);
     forwarded.headers.set("x-go2-apex-fallthrough", "1");
     // The web worker owns the headers on this response — see the security
-    // headers middleware, which skips stamping when this flag is set.
+    // headers middleware, which skips stamping when this flag is set. The
+    // re-wrap makes the headers mutable for outer middleware (timing/cors).
     c.set("apexWebFallthrough", true);
     const upstream = await c.env.WEB.fetch(forwarded);
     return new Response(upstream.body, upstream);
@@ -1465,6 +1497,43 @@ export default {
               void isNull;
             } catch (error) {
               await logJobError(env, "retention-policy", error);
+            }
+
+            // 5. Prune unbounded operational tables toward the D1 10GB cap.
+            // Per-click webhook delivery logs, drip engagement rows, ownerless
+            // guest clicks, and expired Better Auth sessions all grew forever
+            // (retention pruning only covers org-owned clicks). Batched
+            // deletes so the first prune of a large table can't blow D1's
+            // statement-time ceiling.
+            try {
+              const cutoff30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+              const cutoff90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+              const pruneBatched = async (statement: string, bind: string) => {
+                for (let i = 0; i < 5; i++) {
+                  const res = await env.DB.prepare(statement).bind(bind).run();
+                  if ((res.meta?.changes ?? 0) < 5000) break;
+                }
+              };
+              await pruneBatched(
+                "DELETE FROM webhook_deliveries WHERE id IN (SELECT id FROM webhook_deliveries WHERE created_at < ? LIMIT 5000)",
+                cutoff30d
+              );
+              await pruneBatched(
+                "DELETE FROM drip_email_log WHERE id IN (SELECT id FROM drip_email_log WHERE sent_at < ? LIMIT 5000)",
+                cutoff90d
+              );
+              // Guest clicks only — rows with NO owner at all. Personal links
+              // carry user_id with a NULL org, and those follow plan retention.
+              await pruneBatched(
+                "DELETE FROM clicks WHERE id IN (SELECT id FROM clicks WHERE user_id IS NULL AND organization_id IS NULL AND timestamp < ? LIMIT 5000)",
+                cutoff30d
+              );
+              await pruneBatched(
+                "DELETE FROM session WHERE id IN (SELECT id FROM session WHERE expiresAt < ? LIMIT 5000)",
+                now
+              );
+            } catch (error) {
+              await logJobError(env, "prune-operational-tables", error);
             }
 
             // Threat rescan moved to the every-4h trigger below — it shares

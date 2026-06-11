@@ -29,6 +29,7 @@ import {
   submitUrlScan,
 } from "../../lib/safe-browsing.js";
 import { generateSlug, isReservedSlug } from "../../lib/slug.js";
+import { httpUrl } from "../../lib/url-schemas.js";
 import { rateLimitMiddleware } from "../../middleware/rate-limit.js";
 import { turnstileMiddleware } from "../../middleware/turnstile.js";
 
@@ -36,7 +37,7 @@ const publicLinks = new Hono<{ Bindings: Env }>();
 
 // Validation schema for guest link creation (simpler than authenticated)
 const createGuestLinkSchema = z.object({
-  destinationUrl: z.string().url("Invalid URL"),
+  destinationUrl: httpUrl("Invalid URL"),
   claimToken: z.string().min(32).max(64).optional(), // Optional session token for claiming
 });
 

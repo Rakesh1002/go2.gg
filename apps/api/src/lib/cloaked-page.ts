@@ -163,10 +163,14 @@ export function generateCloakedPage(
     <a href="${escapeHtml(destinationUrl)}" id="direct-link">Continue to destination</a>
   </div>
   
-  <iframe 
+  <!-- allow-scripts + allow-same-origin together nullify the sandbox (the
+       framed page could reach up and remove its own sandbox attribute).
+       Cross-origin destinations never needed allow-same-origin; they keep
+       their natural origin and just lose nothing. -->
+  <iframe
     id="frame"
     src="${escapeHtml(destinationUrl)}"
-    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
+    sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
   ></iframe>
   
   <script>

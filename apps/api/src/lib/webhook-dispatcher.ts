@@ -7,9 +7,9 @@
  * - Delivery logging
  */
 
-import { drizzle } from "drizzle-orm/d1";
-import { eq, and } from "drizzle-orm";
 import * as schema from "@repo/db";
+import { and, eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
 import type { Env } from "../bindings.js";
 
 export interface WebhookPayload {
@@ -42,11 +42,58 @@ export async function generateSignature(payload: string, secret: string): Promis
 export function generateWebhookSecret(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  return (
-    `whsec_${Array.from(bytes)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("")}`
-  );
+  return `whsec_${Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+/**
+ * KV flag marking that a user/org has at least one active webhook
+ * subscribed to click (or *) events. The redirect hot path checks this
+ * before calling dispatchWebhookEvent — without it, every tracked click
+ * paid a D1 SELECT on webhooks even for the ~all users who have none.
+ */
+export function clickWebhookFlagKey(scope: string): string {
+  return `click-webhooks:${scope}`;
+}
+
+/**
+ * Recompute the click-webhook flag for a user/org after webhook CRUD.
+ * Scope mirrors dispatchWebhookEvent's query: org-scoped when the webhook
+ * belongs to an org, user-scoped otherwise.
+ */
+export async function syncClickWebhookFlag(
+  env: Env,
+  userId: string,
+  organizationId: string | null | undefined
+): Promise<void> {
+  const db = drizzle(env.DB, { schema });
+  const conditions = [eq(schema.webhooks.isActive, true)];
+  if (organizationId) {
+    conditions.push(eq(schema.webhooks.organizationId, organizationId));
+  } else {
+    conditions.push(eq(schema.webhooks.userId, userId));
+  }
+  const hooks = await db
+    .select({ events: schema.webhooks.events })
+    .from(schema.webhooks)
+    .where(and(...conditions));
+
+  const hasClickHook = hooks.some((w) => {
+    try {
+      const events = JSON.parse(w.events) as string[];
+      return events.includes("click") || events.includes("*");
+    } catch {
+      return false;
+    }
+  });
+
+  const key = clickWebhookFlagKey(organizationId ?? userId);
+  if (hasClickHook) {
+    await env.LINKS_KV.put(key, "1");
+  } else {
+    await env.LINKS_KV.delete(key);
+  }
 }
 
 /**
@@ -128,6 +175,9 @@ async function deliverWebhook(
         "User-Agent": "Go2-Webhooks/1.0",
       },
       body: payloadString,
+      // A slow customer endpoint must not pin the caller's waitUntil for
+      // the full 30s window on every event.
+      signal: AbortSignal.timeout(5000),
     });
 
     statusCode = response.status;

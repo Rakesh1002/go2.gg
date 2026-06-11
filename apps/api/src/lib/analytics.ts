@@ -216,7 +216,11 @@ export interface ABTestState {
   winnerVariantId: string | null;
 }
 
-const AB_KV_TTL_SECONDS = 60;
+// Safety net only — A/B update/complete endpoints overwrite or delete the
+// entry explicitly, so the TTL doesn't bound staleness. At 60s every A/B
+// link paid a blocking D1 read + KV write once a minute for the life of
+// the test.
+const AB_KV_TTL_SECONDS = 600;
 
 function abTestKvKey(id: string): string {
   return `abtest:${id}`;

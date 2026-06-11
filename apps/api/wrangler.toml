@@ -91,6 +91,9 @@ queue = "go2-background-queue"
 queue = "go2-background-queue"
 max_batch_size = 10
 max_batch_timeout = 30
+# After max_retries, messages (invoice/dunning/alert emails) land here
+# instead of vanishing — inspect with `wrangler queues consumer` or peek.
+dead_letter_queue = "go2-background-dlq"
 
 # Durable Objects
 [[durable_objects.bindings]]
@@ -223,6 +226,7 @@ queue = "go2-background-queue"
 queue = "go2-background-queue"
 max_batch_size = 10
 max_batch_timeout = 30
+dead_letter_queue = "go2-background-dlq"
 
 # Cloudflare Email Sending (production)
 [[env.production.send_email]]

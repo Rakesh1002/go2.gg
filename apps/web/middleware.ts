@@ -197,12 +197,12 @@ export async function middleware(request: NextRequest) {
   // Content Security Policy
   const cspHeader = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.posthog.com https://static.cloudflareinsights.com",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.posthog.com https://static.cloudflareinsights.com https://challenges.cloudflare.com",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https: blob:",
     "font-src 'self' data:",
     `connect-src 'self' ${API_URL} https://*.posthog.com https://api.stripe.com https://cdn.jsdelivr.net https://cloudflareinsights.com`,
-    "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+    "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://challenges.cloudflare.com",
     "frame-ancestors 'none'",
     "form-action 'self'",
     "base-uri 'self'",

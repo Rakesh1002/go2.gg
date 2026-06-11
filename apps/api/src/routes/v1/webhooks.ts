@@ -11,16 +11,20 @@
  * - GET /webhooks/:id/deliveries - Get delivery history
  */
 
-import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
-import { drizzle } from "drizzle-orm/d1";
-import { eq, and, desc, sql } from "drizzle-orm";
 import * as schema from "@repo/db";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/d1";
+import { Hono } from "hono";
+import { z } from "zod";
 import type { Env } from "../../bindings.js";
+import { created, forbidden, noContent, notFound, ok } from "../../lib/response.js";
+import {
+  generateWebhookSecret,
+  sendTestWebhook,
+  syncClickWebhookFlag,
+} from "../../lib/webhook-dispatcher.js";
 import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
-import { ok, created, noContent, notFound, forbidden, } from "../../lib/response.js";
-import { generateWebhookSecret, sendTestWebhook } from "../../lib/webhook-dispatcher.js";
 
 const webhooksRouter = new Hono<{ Bindings: Env }>();
 
@@ -91,6 +95,9 @@ webhooksRouter.post("/", zValidator("json", createWebhookSchema), async (c) => {
   };
 
   await db.insert(schema.webhooks).values(newWebhook);
+
+  // Keep the hot path's click-webhook flag in sync (see webhook-dispatcher)
+  c.executionCtx.waitUntil(syncClickWebhookFlag(c.env, user.id, user.organizationId));
 
   // Return with secret visible only on creation
   return created(c, {
@@ -244,6 +251,11 @@ webhooksRouter.patch("/:id", zValidator("json", updateWebhookSchema), async (c) 
 
   await db.update(schema.webhooks).set(updateData).where(eq(schema.webhooks.id, webhookId));
 
+  // events/isActive changes can flip click-webhook eligibility
+  c.executionCtx.waitUntil(
+    syncClickWebhookFlag(c.env, user.id, existing[0].organizationId ?? user.organizationId)
+  );
+
   const updated = await db
     .select({
       id: schema.webhooks.id,
@@ -291,6 +303,10 @@ webhooksRouter.delete("/:id", async (c) => {
   }
 
   await db.delete(schema.webhooks).where(eq(schema.webhooks.id, webhookId));
+
+  c.executionCtx.waitUntil(
+    syncClickWebhookFlag(c.env, user.id, existing[0].organizationId ?? user.organizationId)
+  );
 
   return noContent(c);
 });
