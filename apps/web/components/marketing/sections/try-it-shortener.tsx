@@ -7,7 +7,7 @@ import { normalizeDestinationUrl } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { ArrowRight, Copy, Link2, Loader2, Sparkles } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface CreatedLink {
@@ -89,33 +89,93 @@ export function TryItShortener() {
   const isAuthenticated = !!session?.user;
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState<CreatedLink | null>(null);
   const [savedToAccount, setSavedToAccount] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileKey, setTurnstileKey] = useState(0);
+  // Holds the URL a visitor submitted before the bot-check token was ready;
+  // the verify callback picks it up and finishes the request.
+  const pendingDestRef = useRef<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!url.trim()) return;
-    const destinationUrl = normalizeDestinationUrl(url);
-    if (!destinationUrl) {
-      toast.error("Enter a valid URL");
-      return;
-    }
+  const runGuestCreate = useCallback(async (destinationUrl: string, token: string) => {
     try {
       setSubmitting(true);
       setResult(null);
-      const link = isAuthenticated
-        ? await createAccountLink(destinationUrl)
-        : await createGuestLink(destinationUrl, turnstileToken);
+      const link = await createGuestLink(destinationUrl, token);
       setResult(link);
-      setSavedToAccount(isAuthenticated);
-      if (isAuthenticated) toast.success("Saved to your dashboard");
+      setSavedToAccount(false);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Couldn't shorten that URL";
-      toast.error(msg);
+      toast.error(err instanceof Error ? err.message : "Couldn't shorten that URL");
+    } finally {
+      setSubmitting(false);
+      // Turnstile tokens are single-use — drop it and re-issue for the next try.
+      setTurnstileToken(null);
+      setTurnstileKey((k) => k + 1);
+    }
+  }, []);
+
+  const runAccountCreate = useCallback(async (destinationUrl: string) => {
+    try {
+      setSubmitting(true);
+      setResult(null);
+      const link = await createAccountLink(destinationUrl);
+      setResult(link);
+      setSavedToAccount(true);
+      toast.success("Saved to your dashboard");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't shorten that URL");
     } finally {
       setSubmitting(false);
     }
+  }, []);
+
+  // Turnstile issues a token (silently for most visitors, or after a challenge
+  // for flagged ones). If a submit is waiting on it, finish that submit now.
+  const handleVerify = useCallback(
+    (token: string) => {
+      setTurnstileToken(token);
+      const pending = pendingDestRef.current;
+      if (pending) {
+        pendingDestRef.current = null;
+        setVerifying(false);
+        void runGuestCreate(pending, token);
+      }
+    },
+    [runGuestCreate]
+  );
+
+  // Don't leave the button stuck on "Verifying…" if the token never arrives.
+  useEffect(() => {
+    if (!verifying) return;
+    const timer = setTimeout(() => {
+      if (!pendingDestRef.current) return;
+      pendingDestRef.current = null;
+      setVerifying(false);
+      setTurnstileKey((k) => k + 1);
+      toast.error("Couldn't verify you're human. Please try again.");
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, [verifying]);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const destinationUrl = normalizeDestinationUrl(url);
+    if (!destinationUrl) {
+      if (url.trim()) toast.error("Enter a valid URL");
+      return;
+    }
+    if (isAuthenticated) {
+      await runAccountCreate(destinationUrl);
+      return;
+    }
+    if (turnstileToken) {
+      await runGuestCreate(destinationUrl, turnstileToken);
+      return;
+    }
+    // Bot-check token not ready yet — surface/await the challenge, then auto-submit.
+    pendingDestRef.current = destinationUrl;
+    setVerifying(true);
   }
 
   async function copyResult() {
@@ -153,21 +213,22 @@ export function TryItShortener() {
         <Button
           type="submit"
           size="lg"
-          disabled={submitting || !url.trim()}
+          disabled={submitting || verifying || !url.trim()}
           className="gap-2 bg-[var(--marketing-accent)] text-white hover:bg-[var(--marketing-accent-light)]"
         >
-          {submitting ? (
+          {submitting || verifying ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Sparkles className="h-4 w-4" />
           )}
-          Shorten
+          {verifying ? "Verifying…" : "Shorten"}
         </Button>
       </form>
 
-      {/* Invisible (interaction-only) — issues a token without user friction;
-          the API requires it on anonymous link creation. */}
-      {!isAuthenticated && <Turnstile onVerify={setTurnstileToken} />}
+      {/* Bot check for anonymous creation: silent for most visitors
+          (interaction-only), shows a challenge only when flagged. The submit
+          handler waits on its token, so a flagged visitor still completes. */}
+      {!isAuthenticated && <Turnstile onVerify={handleVerify} resetKey={turnstileKey} />}
 
       {result && (
         <motion.div

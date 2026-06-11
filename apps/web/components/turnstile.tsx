@@ -51,6 +51,8 @@ interface TurnstileProps {
   size?: "normal" | "compact" | "flexible";
   /** When to show the widget */
   appearance?: "always" | "execute" | "interaction-only";
+  /** Bump to re-render the widget and issue a fresh token (tokens are single-use) */
+  resetKey?: number;
   /** Additional CSS class */
   className?: string;
 }
@@ -62,6 +64,7 @@ export function Turnstile({
   theme = "auto",
   size = "flexible",
   appearance = "interaction-only",
+  resetKey,
   className,
 }: TurnstileProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -82,6 +85,7 @@ export function Turnstile({
     onExpire?.();
   }, [onExpire]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: resetKey is a manual re-render trigger to re-issue a single-use token
   useEffect(() => {
     const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
@@ -148,7 +152,7 @@ export function Turnstile({
         }
       }
     };
-  }, [handleVerify, handleError, handleExpire, theme, size, appearance, onVerify]);
+  }, [handleVerify, handleError, handleExpire, theme, size, appearance, resetKey, onVerify]);
 
   // Don't render anything if no site key
   if (!process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY) {
