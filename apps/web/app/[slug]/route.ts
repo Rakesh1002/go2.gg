@@ -1,14 +1,18 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { type NextRequest, NextResponse } from "next/server";
 
 /**
  * Short Link Redirect Handler
  *
- * This catch-all route handles short link redirects by redirecting to the API.
- * Short links are resolved on the api.go2.gg subdomain.
- *
- * Note: We redirect instead of proxy because Cloudflare Workers have restrictions
- * on fetching other Workers on the same zone.
+ * Proxies /<slug> to the API worker over the API service binding and returns
+ * its response (redirect, password page, interstitial) as-is. This keeps the
+ * click to a single user-visible hop — the previous implementation 302'd to
+ * api.go2.gg, which cost every click a second DNS+TLS+worker round-trip.
+ * Outside the Cloudflare runtime (next dev) the binding is absent and we fall
+ * back to that redirect.
  */
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8787";
 
 // Known paths that should NOT be treated as short links
 // These are handled by other routes in the app
@@ -60,7 +64,17 @@ const RESERVED_PATHS = new Set([
   "_next",
 ]);
 
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+// X-Robots-Tag stops Google from indexing /<slug> paths on go2.gg. The
+// moment a slug gets indexed, Safe Browsing's crawler can flag the
+// shortener for whatever phishing destination an abuser pointed at —
+// that's how the 2026-05 GSC warning happened. Apply on every short-link
+// response so the header reaches the bot even on a 30x.
+const ROBOT_HEADERS = {
+  "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+  "Referrer-Policy": "no-referrer",
+} as const;
+
+export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
 
   // Skip reserved paths - they should 404 here and be handled by other routes
@@ -68,24 +82,38 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Redirect to the API domain for short link resolution
-  // The API handles the actual redirect logic, including:
-  // - Looking up the link in KV/D1
-  // - Tracking clicks via Analytics Engine
-  // - Handling password-protected links
-  // - Geo-targeting and device targeting
-  const apiUrl = `https://api.go2.gg/${slug}`;
+  const search = request.nextUrl.search;
+  // Keep the apex host on the proxied URL — links are keyed `go2.gg:<slug>`
+  // in KV, so the API resolves them in a single lookup.
+  const appOrigin = new URL(process.env.NEXT_PUBLIC_APP_URL || "https://go2.gg").origin;
 
-  // X-Robots-Tag stops Google from indexing /<slug> paths on go2.gg. The
-  // moment a slug gets indexed, Safe Browsing's crawler can flag the
-  // shortener for whatever phishing destination an abuser pointed at —
-  // that's how the 2026-05 GSC warning happened. Apply on the redirect
-  // response so the header reaches the bot even on a 30x.
-  return NextResponse.redirect(apiUrl, {
+  try {
+    const { env, cf } = getCloudflareContext();
+    const apiBinding = (env as { API?: { fetch: typeof fetch } }).API;
+    if (apiBinding?.fetch) {
+      // redirect: "manual" is load-bearing — the API answers with a 301 to
+      // the destination, which must pass through to the client, not be
+      // followed by the worker. cf doesn't cross service bindings on its
+      // own; forward it so click analytics keep geo/colo data.
+      const init = {
+        method: "GET",
+        headers: request.headers,
+        redirect: "manual",
+        cf,
+      } as RequestInit;
+      const upstream = await apiBinding.fetch(`${appOrigin}/${slug}${search}`, init);
+      const headers = new Headers(upstream.headers);
+      for (const [key, value] of Object.entries(ROBOT_HEADERS)) {
+        headers.set(key, value);
+      }
+      return new Response(upstream.body, { status: upstream.status, headers });
+    }
+  } catch {
+    // Binding unavailable — use the redirect fallback below.
+  }
+
+  return NextResponse.redirect(`${API_URL}/${slug}${search}`, {
     status: 302,
-    headers: {
-      "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
-      "Referrer-Policy": "no-referrer",
-    },
+    headers: ROBOT_HEADERS,
   });
 }

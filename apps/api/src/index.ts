@@ -229,6 +229,70 @@ const RESERVED_PATHS = new Set([
   "affiliates",
 ]);
 
+// D1 fallback for the redirect hot path. KV is a cache, not the source of
+// truth: bulk- and migration-created entries are written with TTLs, so a KV
+// miss must consult D1 or those links 404 permanently once the cache entry
+// expires. Returns the same CachedLink shape syncLinkToKV writes so the
+// handler logic downstream is identical either way.
+async function loadCachedLinkFromD1(
+  env: Env,
+  domain: string,
+  slug: string
+): Promise<CachedLink | null> {
+  const { drizzle } = await import("drizzle-orm/d1");
+  const { and, eq } = await import("drizzle-orm");
+  const schema = await import("@repo/db");
+  const db = drizzle(env.DB, { schema });
+  const rows = await db
+    .select()
+    .from(schema.links)
+    .where(and(eq(schema.links.domain, domain), eq(schema.links.slug, slug)))
+    .limit(1);
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id,
+    destinationUrl: row.destinationUrl,
+    domain: row.domain,
+    slug: row.slug,
+    userId: row.userId ?? undefined,
+    organizationId: row.organizationId ?? undefined,
+    geoTargets: row.geoTargets ? JSON.parse(row.geoTargets) : undefined,
+    deviceTargets: row.deviceTargets ? JSON.parse(row.deviceTargets) : undefined,
+    passwordHash: row.passwordHash ?? undefined,
+    expiresAt: row.expiresAt ?? undefined,
+    policyExpiresAt: row.policyExpiresAt ?? undefined,
+    clickLimit: row.clickLimit ?? undefined,
+    clickCount: row.clickCount ?? undefined,
+    iosUrl: row.iosUrl ?? undefined,
+    androidUrl: row.androidUrl ?? undefined,
+    abTestId: row.abTestId ?? undefined,
+    abVariant: row.abVariant ?? undefined,
+    rewrite: row.rewrite ?? undefined,
+    ogTitle: row.ogTitle ?? undefined,
+    ogDescription: row.ogDescription ?? undefined,
+    ogImage: row.ogImage ?? undefined,
+    trackingPixels: row.trackingPixels ? JSON.parse(row.trackingPixels) : undefined,
+    enablePixelTracking: row.enablePixelTracking ?? undefined,
+    requirePixelConsent: row.requirePixelConsent ?? undefined,
+    trackAnalytics: row.trackAnalytics ?? undefined,
+    publicStats: row.publicStats ?? undefined,
+    trackConversion: row.trackConversion ?? undefined,
+    skipDeduplication: row.skipDeduplication ?? undefined,
+    agentId: row.agentId ?? undefined,
+    agentRunId: row.agentRunId ?? undefined,
+    agentActorId: row.agentActorId ?? undefined,
+    agentMetadata: row.agentMetadata ? JSON.parse(row.agentMetadata) : undefined,
+    isArchived: row.isArchived ?? undefined,
+    isDisabled: row.isDisabled ?? undefined,
+    disabledReason: row.disabledReason ?? undefined,
+    threatStatus: (row.threatStatus as CachedLink["threatStatus"]) ?? undefined,
+    createdAt: row.createdAt ?? undefined,
+  };
+}
+
 app.get("/:slug", async (c, next) => {
   const slug = c.req.param("slug");
 
@@ -267,14 +331,19 @@ app.get("/:slug", async (c, next) => {
     // Link not found - check if it's on another domain
     const defaultDomain = c.env.DEFAULT_DOMAIN ?? "go2.gg";
     if (domain !== defaultDomain) {
-      const fallbackKey = `${defaultDomain}:${slug}`;
-      const fallbackLink = await c.env.LINKS_KV.get<CachedLink>(fallbackKey, "json");
-      if (!fallbackLink) {
+      link = await c.env.LINKS_KV.get<CachedLink>(`${defaultDomain}:${slug}`, "json");
+    }
+    if (!link) {
+      link =
+        (await loadCachedLinkFromD1(c.env, domain, slug)) ??
+        (domain !== defaultDomain ? await loadCachedLinkFromD1(c.env, defaultDomain, slug) : null);
+      if (!link) {
         return next(); // Let 404 handler deal with it
       }
-      link = fallbackLink;
-    } else {
-      return next();
+      const rehydrated = link;
+      c.executionCtx.waitUntil(
+        c.env.LINKS_KV.put(`${rehydrated.domain}:${rehydrated.slug}`, JSON.stringify(rehydrated))
+      );
     }
   }
 
