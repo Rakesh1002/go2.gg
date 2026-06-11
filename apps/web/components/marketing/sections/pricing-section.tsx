@@ -39,10 +39,12 @@ export function PricingSection({
       <div className="absolute inset-0 bg-grid-pattern opacity-30" />
 
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+        {/* Above the fold — animate on mount, not on scroll-into-view, so the
+            hero never gets stuck invisible if the IntersectionObserver is slow
+            to fire (background-tab preload, slow devices). */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
+          animate={{ opacity: 1, y: 0 }}
           className="mx-auto max-w-2xl text-center"
         >
           <h2 className="font-bold text-3xl text-[var(--marketing-text)] tracking-tight md:text-4xl lg:text-5xl">
@@ -293,9 +295,7 @@ function ComparisonTable() {
       <div
         className={cn(
           "pointer-events-none fixed top-16 right-0 left-0 z-40 transition-all duration-200",
-          showStickyHeader
-            ? "translate-y-0 opacity-100"
-            : "-translate-y-2 opacity-0"
+          showStickyHeader ? "translate-y-0 opacity-100" : "-translate-y-2 opacity-0"
         )}
       >
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -308,16 +308,28 @@ function ComparisonTable() {
                       Feature
                     </th>
                     <th className="w-[20%] px-2 py-3 text-center sm:px-4">
-                      <span className="font-semibold text-[var(--marketing-text)] text-sm">Free</span>
-                      <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">$0/mo</span>
+                      <span className="font-semibold text-[var(--marketing-text)] text-sm">
+                        Free
+                      </span>
+                      <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">
+                        $0/mo
+                      </span>
                     </th>
                     <th className="w-[20%] bg-[var(--marketing-accent)]/5 px-2 py-3 text-center sm:px-4">
-                      <span className="font-semibold text-[var(--marketing-accent)] text-sm">Pro</span>
-                      <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">$9/mo</span>
+                      <span className="font-semibold text-[var(--marketing-accent)] text-sm">
+                        Pro
+                      </span>
+                      <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">
+                        $9/mo
+                      </span>
                     </th>
                     <th className="w-[20%] px-2 py-3 text-center sm:px-4">
-                      <span className="font-semibold text-[var(--marketing-text)] text-sm">Business</span>
-                      <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">$49/mo</span>
+                      <span className="font-semibold text-[var(--marketing-text)] text-sm">
+                        Business
+                      </span>
+                      <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">
+                        $49/mo
+                      </span>
                     </th>
                   </tr>
                 </thead>
@@ -342,15 +354,23 @@ function ComparisonTable() {
                 </th>
                 <th className="w-[20%] px-2 py-4 text-center sm:px-4">
                   <span className="font-semibold text-[var(--marketing-text)] text-sm">Free</span>
-                  <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">$0/mo</span>
+                  <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">
+                    $0/mo
+                  </span>
                 </th>
                 <th className="w-[20%] bg-[var(--marketing-accent)]/5 px-2 py-4 text-center sm:px-4">
                   <span className="font-semibold text-[var(--marketing-accent)] text-sm">Pro</span>
-                  <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">$9/mo</span>
+                  <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">
+                    $9/mo
+                  </span>
                 </th>
                 <th className="w-[20%] px-2 py-4 text-center sm:px-4">
-                  <span className="font-semibold text-[var(--marketing-text)] text-sm">Business</span>
-                  <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">$49/mo</span>
+                  <span className="font-semibold text-[var(--marketing-text)] text-sm">
+                    Business
+                  </span>
+                  <span className="mt-0.5 hidden text-[var(--marketing-text-muted)] text-xs sm:block">
+                    $49/mo
+                  </span>
                 </th>
               </tr>
             </thead>
