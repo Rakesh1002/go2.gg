@@ -1095,13 +1095,10 @@ app.get("/", (c) => {
 // -----------------------------------------------------------------------------
 
 app.notFound((c) => {
-  // Apex fall-through: a single-segment path that didn't resolve as a short
-  // link may still be a web asset or page (favicon variants, future Next
-  // routes), so the web worker gets the final word on the apex.
-  const host = c.req.header("host")?.split(":")[0]?.toLowerCase() ?? "";
-  if (c.env.WEB && isApexHost(c.env, host)) {
-    return c.env.WEB.fetch(c.req.raw);
-  }
+  // On the apex this is only reachable via a failed slug lookup (the apex
+  // shim forwards every non-slug shape to the web worker before routing).
+  // Do NOT forward these to the web worker: its [slug] catch-all proxies
+  // them back here, which recurses until the runtime kills it (error 1101).
   return c.json(
     {
       success: false,
