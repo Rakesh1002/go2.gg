@@ -242,10 +242,18 @@ export async function middleware(request: NextRequest) {
     hasSession = false;
   }
 
-  // Redirect authenticated users away from auth routes
+  // Redirect authenticated users away from auth routes. A pricing CTA can
+  // send a logged-in user to /register?plan=pro — forward that intent to the
+  // billing page instead of dropping them on the dashboard.
   if (hasSession && isAuthRoute) {
-    const redirectUrl = new URL("/dashboard", request.url);
-    return NextResponse.redirect(redirectUrl);
+    const plan = request.nextUrl.searchParams.get("plan");
+    const annual = request.nextUrl.searchParams.get("annual");
+    const target = plan
+      ? `/dashboard/billing?upgrade=${encodeURIComponent(plan)}${
+          annual ? `&annual=${encodeURIComponent(annual)}` : ""
+        }`
+      : "/dashboard";
+    return NextResponse.redirect(new URL(target, request.url));
   }
 
   // Redirect unauthenticated users to login

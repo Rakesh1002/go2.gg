@@ -127,12 +127,14 @@ billing.post("/checkout", zValidator("json", checkoutSchema), async (c) => {
       },
     };
 
-    // Use existing customer or create new one
+    // Use the org's existing customer when there is one. Otherwise just pass
+    // the email — subscription mode always creates a customer on its own,
+    // and customer_creation is payment-mode-only (Stripe 400s on it here,
+    // which broke the first upgrade for every org without a customer yet).
     if (customerId) {
       sessionParams.customer = customerId;
     } else {
       sessionParams.customer_email = user.email;
-      sessionParams.customer_creation = "always";
     }
 
     const session = await stripe.checkout.sessions.create(sessionParams);

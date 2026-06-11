@@ -7,7 +7,20 @@ export const metadata: Metadata = {
   description: "Create a new account",
 };
 
-export default function RegisterPage() {
+export default async function RegisterPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ plan?: string; annual?: string }>;
+}) {
+  // Keep the pricing-CTA upgrade intent alive for users who already have an
+  // account and switch to sign-in — the login form honors ?redirect=.
+  const { plan, annual } = await searchParams;
+  const loginHref = plan
+    ? `/login?redirect=${encodeURIComponent(
+        `/dashboard/billing?upgrade=${plan}${annual ? `&annual=${annual}` : ""}`
+      )}`
+    : "/login";
+
   return (
     <div className="w-full space-y-8">
       <div className="space-y-2 text-center">
@@ -19,7 +32,7 @@ export default function RegisterPage() {
 
       <p className="text-center text-muted-foreground text-sm">
         Already have an account?{" "}
-        <Link href="/login" className="font-medium text-primary hover:underline">
+        <Link href={loginHref} className="font-medium text-primary hover:underline">
           Sign in
         </Link>
       </p>

@@ -9,7 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { authClient } from "@/lib/auth/client";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -31,10 +31,21 @@ type RegisterFormData = z.infer<typeof registerSchema>;
 
 export function RegisterForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [isOAuthLoading, setIsOAuthLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+
+  // Pricing CTAs land here as /register?plan=pro&annual=false — carry the
+  // intent through signup so the user ends at checkout, not a bare dashboard.
+  const plan = searchParams.get("plan");
+  const annual = searchParams.get("annual");
+  const postAuthPath = plan
+    ? `/dashboard/billing?upgrade=${encodeURIComponent(plan)}${
+        annual ? `&annual=${encodeURIComponent(annual)}` : ""
+      }`
+    : "/dashboard";
 
   const {
     register,
@@ -63,7 +74,7 @@ export function RegisterForm() {
       }
 
       toast.success("Account created successfully!");
-      router.push("/dashboard");
+      router.push(postAuthPath);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
@@ -82,7 +93,7 @@ export function RegisterForm() {
 
       await authClient.signIn.social({
         provider: "google",
-        callbackURL: `${baseUrl}/dashboard`,
+        callbackURL: `${baseUrl}${postAuthPath}`,
         errorCallbackURL: `${baseUrl}/register?error=oauth_error`,
       });
     } catch (err) {

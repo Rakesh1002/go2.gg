@@ -13,7 +13,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Check, Loader2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface Plan {
@@ -118,6 +118,21 @@ export function BillingClient({ plans }: BillingClientProps) {
 
     fetchData();
   }, []);
+
+  // Pricing-CTA funnel: /dashboard/billing?upgrade=pro auto-starts checkout
+  // once the current plan is known, so a signup that began on the pricing
+  // page lands directly on Stripe instead of a wall of plan cards.
+  const autoUpgradeFired = useRef(false);
+  useEffect(() => {
+    if (loading || autoUpgradeFired.current) return;
+    const upgrade = searchParams.get("upgrade");
+    if (!upgrade || upgrade === currentPlan) return;
+    const target = plans.find((p) => p.id === upgrade);
+    if (target?.priceId) {
+      autoUpgradeFired.current = true;
+      handleUpgrade(target.priceId, target.id);
+    }
+  });
 
   async function handleUpgrade(priceId: string, planId: string) {
     setUpgrading(planId);
