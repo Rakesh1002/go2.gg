@@ -1,9 +1,24 @@
----
-rros_project: go2
-rros_doc_id: go2/docs/product/roadmap.md
-notion_page_id: 386e4a4b-2a11-818a-9663-dab9e4c7d7ba
-rros_domain: product
----
+# Go2 — Roadmap
 
-# roadmap
-*(file is empty in repo)*
+> Strategy and the *why* live here. Execution lives in **Linear** — link issues, don't
+> retype them.
+
+## Now (this cycle)
+- {prompt: fill current cycle themes → Linear epic links}
+
+## Next (next cycle)
+- {prompt: next-cycle themes}
+
+## Later (someday / parked)
+- {prompt: parked themes}
+
+## Recently shipped
+- Hosted product live at go2.gg: web app, REST API, MCP server, typed SDK, browser extension
+- Agent surfaces: `/AGENTS.md`, `/llms.txt`, `/.well-known/agent-card.json`, `/.well-known/mcp.json`, `/openapi.json`
+- Phishing defence stack (Safe Browsing + Cloudflare URL Scanner + typosquat guard)
+- {prompt: add dated recent ships}
+
+**Linear project:** {prompt: add Linear project URL}
+
+---
+**Owner:** Rakesh Roushan · **Last reviewed:** 2026-06-21 · **Review by:** 2026-09-21
