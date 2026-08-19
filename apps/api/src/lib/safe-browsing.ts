@@ -1,8 +1,12 @@
 /**
  * Destination URL safety checks
  *
- * Two-layer threat lookup used at link create / update time and from the
- * daily rescan cron:
+ * Three-layer threat lookup used at link create / update time and from the
+ * rescan cron:
+ *
+ *   0. Local brand-impersonation heuristic — pure hostname inspection, no
+ *      network. Catches typosquats (roblox.com.bz) the remote lists have not
+ *      picked up yet. Runs first and short-circuits the two calls below.
  *
  *   1. Google Safe Browsing v4 Lookup API — free tier, 10k req/day per key.
  *      Returns one of MALWARE | SOCIAL_ENGINEERING | UNWANTED_SOFTWARE |
@@ -12,13 +16,19 @@
  *      relies on, plus their own ML phishing classifier. Used as a second
  *      layer because Google's list lags real-world phishing by ~hours.
  *
- * Both are best-effort. If a key is unset or the upstream times out we fall
- * back to "unknown" — the daily cron will retry. We never fail-closed on
- * link create because that turns every aigateway hiccup into a paying
- * customer hitting "your link could not be created."
+ * The two remote layers are best-effort. If a key is unset or the upstream
+ * times out we fall back to "unknown" — the cron will retry. We never
+ * fail-closed on link create because that turns every upstream hiccup into a
+ * paying customer hitting "your link could not be created." Layer 0 has no
+ * upstream, so it is the only one that cannot be degraded by an outage.
  */
 import type { Env } from "../bindings.js";
 import { logEvent } from "./axiom.js";
+import { detectBrandImpersonation } from "./brand-impersonation.js";
+import { composeThreatVerdict } from "./threat-verdict.js";
+import type { ThreatType, ThreatVerdict } from "./threat-verdict.js";
+
+export type { ThreatType, ThreatVerdict } from "./threat-verdict.js";
 
 /**
  * Extract the host from a URL for safe logging (don't log full URLs — they
@@ -62,23 +72,6 @@ async function logFailOpen(
 
   // Workers Logs / wrangler tail visibility.
   console.warn(`[${scanner}] fail-open (${reason}) for ${safeHost(context.url)}`);
-}
-
-export type ThreatType =
-  | "MALWARE"
-  | "SOCIAL_ENGINEERING"
-  | "UNWANTED_SOFTWARE"
-  | "POTENTIALLY_HARMFUL_APPLICATION"
-  | "URL_SCANNER_PHISHING"
-  | "URL_SCANNER_MALICIOUS";
-
-export interface ThreatVerdict {
-  /** clean: no scanner flagged. flagged: at least one positive. unknown: no scanner could answer. */
-  status: "clean" | "flagged" | "unknown";
-  /** Source-prefixed verdict, e.g. "safe_browsing:SOCIAL_ENGINEERING". Empty on clean/unknown. */
-  verdict: string;
-  /** Which scanners actually ran. */
-  scanners: Array<"safe_browsing" | "url_scanner">;
 }
 
 const SB_BLOCKING_THREATS = new Set<ThreatType>([
@@ -276,44 +269,21 @@ export async function checkUrlScanner(
 }
 
 /**
- * Run both threat checks in parallel and combine the verdict.
+ * Run the threat checks and combine the verdict. See composeThreatVerdict for
+ * the combination rules: flagged if the local heuristic or either scanner says
+ * so, clean if either scanner confirms safe, unknown only when none answer.
  *
- * Strategy: flagged if EITHER scanner says so. If both return null we
- * surface "unknown" — the daily rescan cron will retry with fresh queries.
+ * The local brand heuristic is evaluated first and short-circuits both network
+ * calls — it needs no upstream, and it is the only layer that catches a
+ * newly-registered typosquat while Safe Browsing still reports "no match".
  */
 export async function checkDestinationThreat(env: Env, url: string): Promise<ThreatVerdict> {
+  const brand = detectBrandImpersonation(url);
+  if (brand) {
+    return composeThreatVerdict(null, null, brand);
+  }
   const [sb, scanner] = await Promise.all([checkSafeBrowsing(env, url), checkUrlScanner(env, url)]);
-
-  const scanners: ThreatVerdict["scanners"] = [];
-  if (sb !== null) scanners.push("safe_browsing");
-  if (scanner !== null) scanners.push("url_scanner");
-
-  if (sb?.flagged) {
-    return {
-      status: "flagged",
-      verdict: `safe_browsing:${sb.threats[0]}`,
-      scanners,
-    };
-  }
-  if (scanner?.flagged) {
-    return {
-      status: "flagged",
-      verdict: `url_scanner:${scanner.reasons[0]}`,
-      scanners,
-    };
-  }
-
-  // Both ran and both came back clean.
-  if (sb && scanner) {
-    return { status: "clean", verdict: "", scanners };
-  }
-  // Only one scanner answered. "Not on Google's list" alone is NOT clean —
-  // the list lags real-world phishing by hours, and URL Scanner returning
-  // null usually means nobody has ever scanned the destination (the exact
-  // profile of a freshly-registered phishing domain). "unknown" keeps the
-  // safety interstitial engaged until a real scan upgrades the verdict;
-  // callers should submitUrlScan() so the rescan cron can do that.
-  return { status: "unknown", verdict: "", scanners };
+  return composeThreatVerdict(sb, scanner);
 }
 
 /**

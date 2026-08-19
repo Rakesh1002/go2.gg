@@ -1,0 +1,77 @@
+name = "go2-redirect"
+main = "src/index.ts"
+account_id = "29252517c2955c4e7ffa117baf1dcbca"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat_v2"]
+minify = true
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[dev]
+port = 8788
+
+# LINKS_KV — same namespace the monolith writes link cache into.
+[[kv_namespaces]]
+binding = "LINKS_KV"
+id = "cc18f3e6b3a7457ea6fe5186dd32686a"
+
+# Service binding to the monolith. Slug fast-path is served here; everything
+# else (pages, /api, gate pages, KV misses, track-only pings) forwards to it.
+[[services]]
+binding = "API"
+service = "go2-api"
+
+[vars]
+APP_ENV = "development"
+DEFAULT_DOMAIN = "go2.gg"
+AXIOM_DATASET = "go2"
+
+# -----------------------------------------------------------------------------
+# Production — go2.gg/* is served here (slug fast-path native, everything else
+# forwarded to the monolith over the API service binding). api.go2.gg + mcp
+# stay on the monolith.
+# Rollback (instant, zero-gap): reassign the route back to the monolith via the
+# CF API, no redeploy needed:
+#   PUT /zones/<zoneId>/workers/routes/<routeId> { pattern:"go2.gg/*", script:"go2-api-production" }
+#   zoneId=19ecf59fca24bbf01ce91d1039f772a7  routeId=5eeb735c503d4ebcbf4308760da8ba57
+# -----------------------------------------------------------------------------
+[env.production]
+name = "go2-redirect-production"
+
+[[env.production.routes]]
+pattern = "go2.gg/*"
+zone_name = "go2.gg"
+
+[env.production.vars]
+APP_ENV = "production"
+DEFAULT_DOMAIN = "go2.gg"
+AXIOM_DATASET = "go2"
+
+[[env.production.kv_namespaces]]
+binding = "LINKS_KV"
+id = "cc18f3e6b3a7457ea6fe5186dd32686a"
+
+[[env.production.services]]
+binding = "API"
+service = "go2-api-production"
+
+# Secrets (set via: wrangler secret put --env production):
+#   AXIOM_API_KEY   (xaat-… ingest token; dataset configured in [vars])
+
+[env.staging]
+name = "go2-redirect-staging"
+
+[env.staging.vars]
+APP_ENV = "staging"
+DEFAULT_DOMAIN = "staging.go2.gg"
+AXIOM_DATASET = "go2"
+
+[[env.staging.kv_namespaces]]
+binding = "LINKS_KV"
+id = "cc18f3e6b3a7457ea6fe5186dd32686a"
+
+[[env.staging.services]]
+binding = "API"
+service = "go2-api-staging"

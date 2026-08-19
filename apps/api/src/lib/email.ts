@@ -161,7 +161,7 @@ const MARKETING_TEMPLATES: EmailTemplate[] = [
  */
 function renderTemplate(
   template: EmailTemplate,
-  data: Record<string, unknown>,
+  data: Record<string, unknown>
 ): React.ReactElement | null {
   switch (template) {
     case "welcome":
@@ -192,7 +192,7 @@ function renderTemplate(
 
     case "invoice":
       return InvoiceEmail({
-        customerName: (data.customerName as string) || "Customer",
+        customerName: (data.customerName as string) || "there",
         invoiceNumber: data.invoiceNumber as string,
         amount: data.amount as string,
         currency: data.currency as string,
@@ -201,6 +201,7 @@ function renderTemplate(
           description: string;
           amount: string;
         }>) || [{ description: "Subscription", amount: data.amount as string }],
+        paidOn: data.paidOn as string | undefined,
         dueDate: data.dueDate as string | undefined,
       });
 
@@ -235,8 +236,7 @@ function renderTemplate(
             | "downgraded"
             | "cancelled"
             | "reactivated"
-            | "renewed") ||
-          (data.changeType === "upgrade" ? "upgraded" : "downgraded"),
+            | "renewed") || (data.changeType === "upgrade" ? "upgraded" : "downgraded"),
         planName: data.planName as string,
         effectiveDate: data.effectiveDate as string,
         billingUrl: (data.billingUrl as string) || "",
@@ -257,10 +257,7 @@ function renderTemplate(
         amount: data.amount as string,
         currency: data.currency as string,
         updatePaymentUrl: data.updatePaymentUrl as string,
-        daysOverdue:
-          (data.daysOverdue as number) ||
-          (data.daysUntilCancellation as number) ||
-          3,
+        daysOverdue: (data.daysOverdue as number) || (data.daysUntilCancellation as number) || 3,
         gracePeriodEnds: data.gracePeriodEnds as string,
         willBeCanceled: (data.willBeCanceled as boolean) || false,
       });
@@ -268,11 +265,7 @@ function renderTemplate(
     case "usage-alert":
       return UsageAlertEmail({
         customerName: (data.customerName as string) || "Customer",
-        usageType: data.usageType as
-          | "links"
-          | "linksThisMonth"
-          | "domains"
-          | "teamMembers",
+        usageType: data.usageType as "links" | "linksThisMonth" | "domains" | "teamMembers",
         usagePercentage: data.usagePercentage as number,
         currentUsage: data.currentUsage as number,
         limit: data.limit as number,
@@ -323,8 +316,7 @@ function renderTemplate(
         updateType: "downgraded",
         planName: "Trial",
         effectiveDate: data.expiryDate as string,
-        billingUrl:
-          (data.billingUrl as string) || (data.upgradeUrl as string) || "",
+        billingUrl: (data.billingUrl as string) || (data.upgradeUrl as string) || "",
       });
 
     case "email-verification":
@@ -336,9 +328,7 @@ function renderTemplate(
     case "email-otp":
       return EmailOTPEmail({
         otp: data.otp as string,
-        type:
-          (data.type as "sign-in" | "email-verification" | "forget-password") ||
-          "sign-in",
+        type: (data.type as "sign-in" | "email-verification" | "forget-password") || "sign-in",
         expiresIn: (data.expiresIn as string) || "10 minutes",
       });
 
@@ -484,9 +474,7 @@ function isHardBounce(errMsg: string): boolean {
 async function isSuppressed(env: Env, email: string): Promise<boolean> {
   if (!env.DB) return false;
   try {
-    const row = await env.DB.prepare(
-      "SELECT 1 FROM email_suppressions WHERE email = ?1 LIMIT 1",
-    )
+    const row = await env.DB.prepare("SELECT 1 FROM email_suppressions WHERE email = ?1 LIMIT 1")
       .bind(email.toLowerCase().trim())
       .first();
     return row !== null;
@@ -504,7 +492,7 @@ async function recordSuppression(
   email: string,
   reason: "hard_bounce" | "invalid",
   source: string,
-  errMsg: string,
+  errMsg: string
 ): Promise<void> {
   if (!env.DB) return;
   const normalized = email.toLowerCase().trim();
@@ -517,7 +505,7 @@ async function recordSuppression(
          source = excluded.source,
          last_error = excluded.last_error,
          failure_count = email_suppressions.failure_count + 1,
-         last_seen_at = datetime('now')`,
+         last_seen_at = datetime('now')`
     )
       .bind(normalized, reason, source, errMsg.slice(0, 500))
       .run();
@@ -525,12 +513,12 @@ async function recordSuppression(
       env,
       "email.suppression.recorded",
       { email: normalized, reason, source },
-      "warn",
+      "warn"
     );
   } catch (e) {
     console.warn(
       "[Email] Failed to record suppression:",
-      e instanceof Error ? e.message : String(e),
+      e instanceof Error ? e.message : String(e)
     );
   }
 }
@@ -552,11 +540,11 @@ function parseFrom(raw: string): string | { email: string; name: string } {
  */
 export async function sendEmail(
   env: Env,
-  payload: EmailPayload,
+  payload: EmailPayload
 ): Promise<{ success: boolean; error?: string; messageId?: string }> {
   if (!env.EMAIL || typeof env.EMAIL.send !== "function") {
     console.error(
-      "[Email] EMAIL binding is not configured. Add a [[send_email]] block to wrangler.toml.",
+      "[Email] EMAIL binding is not configured. Add a [[send_email]] block to wrangler.toml."
     );
     return { success: false, error: "Email service not configured" };
   }
@@ -566,22 +554,20 @@ export async function sendEmail(
       env,
       "email.send.suppressed",
       { to: payload.to.toLowerCase().trim(), template: payload.template },
-      "info",
+      "info"
     );
     return { success: false, error: "Recipient is suppressed" };
   }
 
   // Determine sender address
-  const isMarketing =
-    payload.isMarketing || MARKETING_TEMPLATES.includes(payload.template);
+  const isMarketing = payload.isMarketing || MARKETING_TEMPLATES.includes(payload.template);
   const fromRaw = isMarketing
     ? env.EMAIL_FROM_MARKETING || "Rakesh <rakesh@go2.gg>"
     : env.EMAIL_FROM_TRANSACTIONAL || "Go2 <noreply@go2.gg>";
   const from = parseFrom(fromRaw);
 
   // Get subject
-  const baseSubject =
-    payload.subject || EMAIL_SUBJECTS[payload.template] || "Message from Go2";
+  const baseSubject = payload.subject || EMAIL_SUBJECTS[payload.template] || "Message from Go2";
 
   try {
     // Render React Email template to HTML + text
@@ -602,9 +588,7 @@ export async function sendEmail(
 
     // Add replyTo for contact form emails
     const replyTo =
-      payload.template === "contact-form"
-        ? (payload.data.email as string)
-        : undefined;
+      payload.template === "contact-form" ? (payload.data.email as string) : undefined;
 
     // Custom subject for contact form
     const subject =
@@ -631,13 +615,7 @@ export async function sendEmail(
     console.error(`[Email] Failed to send ${payload.template}:`, errMsg);
 
     if (isHardBounce(errMsg)) {
-      await recordSuppression(
-        env,
-        payload.to,
-        "hard_bounce",
-        payload.template,
-        errMsg,
-      );
+      await recordSuppression(env, payload.to, "hard_bounce", payload.template, errMsg);
     }
 
     return {

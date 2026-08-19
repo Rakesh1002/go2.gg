@@ -71,14 +71,15 @@ import { logEvent as logToAxiom } from "./lib/axiom.js";
 // D1 row → CachedLink mapping shared by every KV write site
 import { serializeCachedLink } from "./lib/cached-link.js";
 
-// OG preview page for link-preview crawlers (custom-OG links only)
-import { isLinkPreviewBot, renderOgPreviewPage } from "./lib/og-preview.js";
+// OG preview for link-preview crawlers / non-browser fetchers
+import { fetchDestinationOg } from "./lib/og-meta.js";
+import { renderOgPreviewPage, wantsOgPreview } from "./lib/og-preview.js";
 
 // Link cloaking
 import { generateCloakedPage } from "./lib/cloaked-page.js";
 
 // Safety interstitial + disabled-link page
-import { renderDisabledPage, renderInterstitial, renderPasswordPage } from "./lib/safety-pages.js";
+import { renderDisabledPage, renderPasswordPage } from "./lib/safety-pages.js";
 
 import { getCookie, setCookie } from "hono/cookie";
 import { signUnlockToken, verifyPassword, verifyUnlockToken } from "./lib/password.js";
@@ -677,7 +678,12 @@ app.get("/:slug", async (c, next) => {
   // and reuse the same ID when persisting the click record below. Both IDs are
   // included so the track endpoint can resolve linkId even if the click row
   // hasn't been persisted by waitUntil yet (sub-second conversion races).
-  const clickId = generateClickId();
+  //
+  // The lean edge redirect worker (apps/redirect) serves the 302 itself, stamps
+  // go2_ref with the clickId it generated, then pings us with x-go2-click-id so
+  // the persisted click row uses that same id. Honor it; fall back to a fresh
+  // id for direct hits to the monolith.
+  const clickId = c.req.header("x-go2-click-id") || generateClickId();
   let destination = baseDestination;
   try {
     const destUrl = new URL(baseDestination);
@@ -987,6 +993,15 @@ app.get("/:slug", async (c, next) => {
     })()
   );
 
+  // Track-only ping from the edge redirect worker (apps/redirect): it already
+  // served the 302 to the user and called back purely to record the click
+  // through the existing pipeline above. Nothing left to render — return 204
+  // before the pixel/cloak/OG response branches. (Edge only pings simple links,
+  // so those branches wouldn't fire anyway; this is the explicit short-circuit.)
+  if (c.req.header("x-go2-track-only") === "1") {
+    return new Response(null, { status: 204 });
+  }
+
   // Serve the pixel-tracking interstitial only when the user has at least
   // one *enabled* pixel attached. Previously the gate triggered on
   // `trackingPixels.length > 0` even when every pixel had `enabled: false`,
@@ -1035,60 +1050,39 @@ app.get("/:slug", async (c, next) => {
     return c.html(cloakedPage);
   }
 
-  // Safety interstitial — preview-and-confirm step. Three independent gates;
-  // any one of them fires the interstitial. NO query-string bypass — the
-  // prior `?go2_confirmed=1` shortcut let phishers craft URLs that skipped
-  // the preview entirely. Continue is always a deliberate human click.
+  // No "unverified destination" preview. A redirect must be instant — the
+  // only safety stop on this path is the `isDisabled` 410 above, which fires
+  // when Google Safe Browsing, Cloudflare URL Scanner, or the rescan cron has
+  // an active *flagged* verdict for the destination. An "unknown" verdict
+  // (the default for any URL nobody has scanned yet, i.e. almost every real
+  // link) is NOT a reason to interrupt the click: it would punish every
+  // legitimate destination with a confirm step. Brand-new malicious links are
+  // caught and disabled by the rescan cron, which flips them to the 410 path.
   //
-  //   1. threatStatus is "unknown" — neither scanner could verify the
-  //      destination; force the human to make the call.
-  //   2. link is < 1h old AND threatStatus is not "clean" — short window
-  //      where create-time check might be stale; once rescan upgrades to
-  //      "clean", normal redirect resumes.
-  //   3. link is a guest link AND threatStatus is not "clean" — anonymous
-  //      creates are higher abuse-risk; lose the gate as soon as the daily
-  //      rescan confirms clean.
-  //
-  // Crawlers / preview bots get the interstitial (noindex), so the
-  // destination URL is never indexed via go2.gg's path even if a slug leaks.
-  const ageMs = link.createdAt
-    ? Date.now() - new Date(link.createdAt).getTime()
-    : Number.POSITIVE_INFINITY;
-  const isNewLink = ageMs < 60 * 60 * 1000;
-  const isGuest = link.userId == null;
-  const isUnverified = link.threatStatus !== "clean";
-  const showInterstitial =
-    isUnverified && (isNewLink || isGuest || link.threatStatus === "unknown");
-
-  if (showInterstitial) {
-    return c.html(
-      renderInterstitial({
-        shortUrl: `https://${link.domain}/${link.slug}`,
-        // Show the un-altered destination, not the go2_ref-stamped one. We
-        // don't want to leak click IDs on the preview screen.
-        destination: baseDestination,
-        reason: link.threatStatus === "unknown" ? "unknown_threat" : "new_link",
-      })
-    );
-  }
-
-  // Link-preview crawlers get a minimal OG page when the link carries custom
-  // OG metadata; without it they follow the redirect and read the
-  // destination's own tags. Only links that cleared the safety gates above
-  // reach this point, so this never dresses up an unverified destination.
-  if (link.ogTitle || link.ogDescription || link.ogImage) {
-    const ua = c.req.header("user-agent") ?? "";
-    if (isLinkPreviewBot(ua)) {
+  // Link-preview crawlers, OG validators, and any client that isn't a real
+  // browser navigation get an OG page at the short URL itself — they don't all
+  // follow the 302 to read the destination's own tags (e.g. OrcaScan and many
+  // server-side unfurlers don't). Custom OG on the link wins; otherwise mirror
+  // the destination's own tags (fetched + cached). Real browser navigations
+  // skip this and get the instant redirect below. Only links that cleared the
+  // safety gates above reach this point.
+  if (wantsOgPreview(c.req.header("user-agent") ?? "", c.req.header("sec-fetch-mode"))) {
+    const hasCustomOg = link.ogTitle || link.ogDescription || link.ogImage;
+    const og = hasCustomOg
+      ? { title: link.ogTitle, description: link.ogDescription, image: link.ogImage }
+      : await fetchDestinationOg(c.env, baseDestination);
+    if (og && (og.title || og.description || og.image)) {
       return c.html(
         renderOgPreviewPage({
           shortUrl: `https://${link.domain}/${link.slug}`,
           destination: baseDestination,
-          title: link.ogTitle,
-          description: link.ogDescription,
-          image: link.ogImage,
+          title: og.title,
+          description: og.description,
+          image: og.image,
         })
       );
     }
+    // No OG anywhere — fall through to the redirect.
   }
 
   // 302, not 301: browsers cache permanent redirects forever, which (a) makes
@@ -1545,10 +1539,45 @@ export default {
         break;
 
       case "*/15 * * * *":
-        // Every 15 minutes - sync subscriptions
+        // Every 15 minutes - reconcile Stripe subscriptions into D1.
+        // Safety net for missed/out-of-order webhooks: the subscription record
+        // is normally written by the webhook + the synchronous /billing/confirm,
+        // but if both are missed a paying customer would otherwise stay on Free
+        // until renewal. This re-syncs every active sub idempotently.
         ctx.waitUntil(
           (async () => {
-            // TODO: Sync Stripe subscription statuses
+            try {
+              const StripeMod = (await import("stripe")).default;
+              const { drizzle } = await import("drizzle-orm/d1");
+              const schema = await import("@repo/db");
+              const { createD1Repositories } = await import("@repo/db/d1");
+              const { syncSubscriptionFromStripe } = await import("./lib/subscription-sync.js");
+
+              const stripe = new StripeMod(env.STRIPE_SECRET_KEY, {
+                apiVersion: "2025-02-24.acacia",
+              });
+              const db = drizzle(env.DB, { schema });
+              const repos = createD1Repositories(db);
+
+              let synced = 0;
+              let scanned = 0;
+              for (const status of ["active", "trialing", "past_due"] as const) {
+                for await (const sub of stripe.subscriptions.list({ status, limit: 100 })) {
+                  scanned++;
+                  try {
+                    const result = await syncSubscriptionFromStripe(env, repos, sub);
+                    if (result) synced++;
+                  } catch (err) {
+                    console.error(`[cron] subscription sync failed for ${sub.id}:`, err);
+                  }
+                }
+              }
+              if (scanned > 0) {
+                console.log(`[cron] subscription reconcile: scanned=${scanned} synced=${synced}`);
+              }
+            } catch (error) {
+              await logJobError(env, "stripe-subscription-sync", error);
+            }
           })()
         );
         break;

@@ -10,10 +10,20 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Check, Loader2 } from "lucide-react";
+import { queryKeys } from "@/hooks/use-queries";
+import { useQueryClient } from "@tanstack/react-query";
+import { Check, Loader2, Sparkles } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 interface Plan {
@@ -47,77 +57,128 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
 
 export function BillingClient({ plans }: BillingClientProps) {
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [currentPlan, setCurrentPlan] = useState<string>("free");
   const [loading, setLoading] = useState(true);
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [managingPortal, setManagingPortal] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [successPlan, setSuccessPlan] = useState<string | null>(null);
 
-  // Show success/cancel message from checkout redirect
-  useEffect(() => {
-    if (searchParams.get("success") === "true") {
-      toast.success("Subscription updated successfully!");
-    } else if (searchParams.get("canceled") === "true") {
-      toast.info("Checkout canceled");
-    }
-  }, [searchParams]);
+  // Fetch the org + subscription. Returns the resolved org so callers can chain
+  // (e.g. the post-checkout confirm flow needs the org before it can refetch).
+  const loadData = useCallback(async (): Promise<Organization | null> => {
+    try {
+      const orgResponse = await fetch(`${API_URL}/api/v1/organizations`, {
+        credentials: "include",
+      });
+      if (!orgResponse.ok) {
+        console.error("Failed to fetch organizations:", orgResponse.status);
+        return null;
+      }
+      const orgResult = await orgResponse.json();
+      const org = (orgResult.data || [])[0];
+      if (!org) {
+        console.error("No organization found");
+        return null;
+      }
+      setOrganization(org);
 
-  // Fetch organization and subscription
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        // First, get the user's organization
-        const orgResponse = await fetch(`${API_URL}/api/v1/organizations`, {
-          credentials: "include",
-        });
-
-        if (!orgResponse.ok) {
-          console.error("Failed to fetch organizations:", orgResponse.status);
-          setLoading(false);
-          return;
-        }
-
-        const orgResult = await orgResponse.json();
-        const orgs = orgResult.data || [];
-
-        // Get the first organization (user's primary org)
-        const org = orgs[0];
-        if (!org) {
-          console.error("No organization found");
-          setLoading(false);
-          return;
-        }
-
-        setOrganization(org);
-
-        // Now fetch subscription for this organization
-        const subResponse = await fetch(
-          `${API_URL}/api/v1/billing/subscription?organizationId=${org.id}`,
-          { credentials: "include" }
-        );
-
-        if (subResponse.ok) {
-          const subResult = await subResponse.json();
-          if (subResult.success) {
-            if (subResult.data.subscription) {
-              setSubscription(subResult.data.subscription);
-            }
-            // Use the plan from the API response (handles trial status correctly)
-            if (subResult.data.plan) {
-              setCurrentPlan(subResult.data.plan);
-            }
+      const subResponse = await fetch(
+        `${API_URL}/api/v1/billing/subscription?organizationId=${org.id}`,
+        { credentials: "include" }
+      );
+      if (subResponse.ok) {
+        const subResult = await subResponse.json();
+        if (subResult.success) {
+          setSubscription(subResult.data.subscription ?? null);
+          if (subResult.data.plan) {
+            setCurrentPlan(subResult.data.plan);
           }
         }
-      } catch (error) {
-        console.error("Failed to fetch billing data:", error);
-      } finally {
-        setLoading(false);
       }
+      return org;
+    } catch (error) {
+      console.error("Failed to fetch billing data:", error);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Initial load.
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Post-checkout: reconcile the subscription synchronously instead of waiting
+  // for the (eventually-consistent) Stripe webhook, so the plan flips to paid
+  // the moment this page loads. Then invalidate the cross-app usage/stats caches
+  // so the dashboard + home reflect the upgrade immediately too.
+  const confirmRan = useRef(false);
+  useEffect(() => {
+    if (confirmRan.current) return;
+
+    if (searchParams.get("canceled") === "true") {
+      confirmRan.current = true;
+      toast.info("Checkout canceled — you have not been charged.");
+      return;
     }
 
-    fetchData();
-  }, []);
+    if (searchParams.get("success") !== "true") return;
+    confirmRan.current = true;
+    setConfirming(true);
+
+    const sessionId = searchParams.get("session_id");
+
+    (async () => {
+      try {
+        let confirmedPlan: string | null = null;
+        if (sessionId) {
+          const res = await fetch(`${API_URL}/api/v1/billing/confirm`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId }),
+            credentials: "include",
+          });
+          const result = await res.json().catch(() => null);
+          if (res.ok && result?.success && result.data?.plan) {
+            confirmedPlan = result.data.plan as string;
+          }
+        }
+
+        // Refresh local + cross-app state from the source of truth.
+        await loadData();
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: queryKeys.usage }),
+          queryClient.invalidateQueries({ queryKey: queryKeys.dashboardStats }),
+        ]);
+
+        if (confirmedPlan && confirmedPlan !== "free") {
+          setCurrentPlan(confirmedPlan);
+          setSuccessPlan(confirmedPlan);
+        } else {
+          // Webhook hasn't settled and confirm didn't resolve a paid plan —
+          // tell the truth rather than show a false success.
+          toast.success("Payment received. Your plan is updating — this can take a few seconds.");
+        }
+      } catch (error) {
+        console.error("Failed to confirm checkout:", error);
+        toast.error("We received your payment but couldn't refresh the page. Please reload.");
+      } finally {
+        setConfirming(false);
+        // Strip the checkout params so a refresh doesn't re-trigger confirm.
+        if (typeof window !== "undefined") {
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+      }
+    })();
+  }, [searchParams, loadData, queryClient]);
+
+  const planLabel = (id: string) =>
+    plans.find((p) => p.id === id)?.name ?? id.charAt(0).toUpperCase() + id.slice(1);
 
   // Pricing-CTA funnel: /dashboard/billing?upgrade=pro auto-starts checkout
   // once the current plan is known, so a signup that began on the pricing
@@ -195,8 +256,8 @@ export function BillingClient({ plans }: BillingClientProps) {
   // Get display name for plan (handles trial status)
   const planDisplayName =
     subscription?.status === "trialing"
-      ? `${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} (Trial)`
-      : currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1);
+      ? `${planLabel(currentPlan)} (Trial)`
+      : planLabel(currentPlan);
 
   return (
     <>
@@ -205,15 +266,17 @@ export function BillingClient({ plans }: BillingClientProps) {
         <CardHeader>
           <CardTitle>Current Plan</CardTitle>
           <CardDescription>
-            {subscription?.status === "trialing"
-              ? `You are on a ${currentPlan} trial`
-              : subscription
-                ? `You are on the ${currentPlan} plan`
-                : "You are currently on the Free plan"}
+            {confirming
+              ? "Finalizing your upgrade…"
+              : subscription?.status === "trialing"
+                ? `You are on a ${currentPlan} trial`
+                : subscription
+                  ? `You are on the ${currentPlan} plan`
+                  : "You are currently on the Free plan"}
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {loading || confirming ? (
             <div className="flex items-center justify-between">
               <div className="space-y-2">
                 <Skeleton className="h-8 w-24" />
@@ -339,6 +402,30 @@ export function BillingClient({ plans }: BillingClientProps) {
           })}
         </div>
       </div>
+
+      {/* Post-upgrade success modal */}
+      <Dialog open={successPlan !== null} onOpenChange={(open) => !open && setSuccessPlan(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+              <Sparkles className="h-6 w-6 text-primary" />
+            </div>
+            <DialogTitle className="text-center text-xl">
+              You're on {successPlan ? planLabel(successPlan) : "your new plan"}
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              Payment received and your account has been upgraded. All{" "}
+              {successPlan ? planLabel(successPlan) : "plan"} features are unlocked across your
+              workspace right now.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-center">
+            <Button onClick={() => setSuccessPlan(null)} className="w-full sm:w-auto">
+              Start using {successPlan ? planLabel(successPlan) : "your plan"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

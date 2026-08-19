@@ -171,19 +171,9 @@ const resourceItems = [
 export function SiteHeader() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const { data: session, isPending } = useSession();
 
   const isAuthenticated = !!session?.user;
-  // Auth is a client-only signal — the server can't know it, so it always
-  // renders the placeholder. Render the same placeholder on the first client
-  // paint (mounted === false) to avoid a hydration mismatch that would force
-  // React to regenerate the whole marketing tree.
-  const authPending = !mounted || isPending;
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // Track scroll position for glassmorphism effect
   useEffect(() => {
@@ -211,9 +201,9 @@ export function SiteHeader() {
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
         {/* Logo & Primary Nav */}
         <div className="flex items-center gap-8">
-          <Link href="/" className="flex items-center gap-2">
-            <Logo showText className="flex" />
-          </Link>
+          {/* Logo already renders its own <Link href="/"> — don't wrap it in
+              another anchor (nested <a> is invalid HTML → hydration error). */}
+          <Logo showText className="flex" />
 
           <NavigationMenu className="hidden lg:flex">
             <NavigationMenuList className="gap-1">
@@ -360,7 +350,7 @@ export function SiteHeader() {
           )}
 
           <div className="hidden items-center gap-3 sm:flex">
-            {authPending ? (
+            {isPending ? (
               // Loading state - show subtle placeholder
               <div className="h-9 w-24 animate-pulse rounded-full bg-[var(--marketing-accent)]/10" />
             ) : isAuthenticated ? (
@@ -493,7 +483,7 @@ export function SiteHeader() {
                 </nav>
 
                 <div className="space-y-3 border-[var(--marketing-border)] border-t bg-[var(--marketing-bg)] p-4">
-                  {authPending ? (
+                  {isPending ? (
                     <div className="h-11 w-full animate-pulse rounded-xl bg-[var(--marketing-accent)]/10" />
                   ) : isAuthenticated ? (
                     <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="block">

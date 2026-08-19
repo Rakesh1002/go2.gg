@@ -5,10 +5,8 @@
  * All events are verified using Stripe's webhook signature.
  */
 
-import { pricingPlans } from "@repo/config/pricing";
 import * as schema from "@repo/db";
 import { createD1Repositories } from "@repo/db/d1";
-import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import Stripe from "stripe";
@@ -24,45 +22,7 @@ import {
   attributeCheckout,
   attributeInvoicePaid,
 } from "../../lib/stripe-attribution.js";
-
-// Price ID to Plan mapping
-// Go2.gg products under acct_1TgyIg43jurh1T6b — keep in sync with
-// scripts/stripe-setup.mjs and @repo/config/pricing.
-const PRICE_TO_PLAN: Record<string, string> = {
-  // Go2 Pro - $9/mo or $86/year
-  price_1TgyYu43jurh1T6btCXxDvfE: "pro", // Pro Monthly
-  price_1TgyYu43jurh1T6bVJMu9GM9: "pro", // Pro Annual
-  // Go2 Business - $49/mo or $470/year
-  price_1TgyYw43jurh1T6brxnKqpg6: "business", // Business Monthly
-  price_1TgyYx43jurh1T6bkOVdlYup: "business", // Business Annual
-  // Go2 Scale - usage-based via Meter (first 500K events free, then $0.40/1K)
-  price_1TgyYz43jurh1T6bOzGBALt1: "scale",
-};
-
-type SubscriptionPlan = "free" | "pro" | "business" | "scale" | "enterprise";
-
-/**
- * Returns null for unrecognized price IDs. The previous default-to-"pro"
- * fallback meant any misconfigured price silently granted a paid plan;
- * callers must treat null as "log loudly and change nothing."
- */
-function getPlanFromPriceId(priceId: string): SubscriptionPlan | null {
-  const plan = PRICE_TO_PLAN[priceId];
-  if (plan === "pro" || plan === "business" || plan === "scale" || plan === "enterprise") {
-    return plan;
-  }
-
-  // Env-provisioned prices (e.g. Scale, re-provisioned accounts) resolve via
-  // the pricing config, which reads STRIPE_PRICE_* at startup.
-  const configPlan = pricingPlans.find(
-    (p) => p.stripePriceIdMonthly === priceId || p.stripePriceIdAnnual === priceId
-  );
-  if (configPlan?.id === "pro" || configPlan?.id === "business" || configPlan?.id === "scale") {
-    return configPlan.id;
-  }
-
-  return null;
-}
+import { syncSubscriptionFromStripe } from "../../lib/subscription-sync.js";
 
 const stripeWebhooks = new Hono<{ Bindings: Env }>();
 
@@ -102,7 +62,7 @@ stripeWebhooks.post("/", async (c) => {
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
-      await handleCheckoutCompleted(repos, session, c.env);
+      await handleCheckoutCompleted(stripe, repos, session, c.env);
       // Two-stage attribution: fire "lead" conversion + carry attribution to
       // the subscription so invoice.payment_succeeded can attribute the sale.
       await attributeCheckout(c.env, stripe, session);
@@ -117,7 +77,7 @@ stripeWebhooks.post("/", async (c) => {
         // "updated" landing after "deleted" would resurrect a canceled plan.
         break;
       }
-      await handleSubscriptionUpdated(repos, subscription, c.env);
+      await syncSubscriptionFromStripe(c.env, repos, subscription);
       await recordSubscriptionEventClock(c.env, subscription.id, event.created);
       break;
     }
@@ -205,13 +165,13 @@ async function recordSubscriptionEventClock(
 // -----------------------------------------------------------------------------
 
 async function handleCheckoutCompleted(
+  stripe: Stripe,
   repos: ReturnType<typeof createD1Repositories>,
   session: Stripe.Checkout.Session,
   env: Env
 ) {
   const mode = session.mode;
   const customerId = session.customer as string;
-  const _customerEmail = session.customer_email || session.customer_details?.email;
 
   // Handle one-time payment (boilerplate purchase)
   if (mode === "payment") {
@@ -231,6 +191,22 @@ async function handleCheckoutCompleted(
     await repos.organizations.update(orgId, {
       stripeCustomerId: customerId,
     });
+  }
+
+  // Eagerly upsert the subscription record from this session's subscription.
+  // checkout.session.completed reliably carries both the org (session metadata)
+  // and the subscription id, so the plan is reflected the instant checkout
+  // lands — independent of whether customer.subscription.created arrives first,
+  // last, or is dropped. syncSubscriptionFromStripe is idempotent.
+  const subscriptionId =
+    typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+  if (subscriptionId) {
+    try {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      await syncSubscriptionFromStripe(env, repos, subscription, { hintOrgId: orgId });
+    } catch (error) {
+      console.error(`Failed to sync subscription ${subscriptionId} from checkout:`, error);
+    }
   }
 }
 
@@ -289,147 +265,6 @@ async function handleBoilerplatePurchase(
   }
 }
 
-async function handleSubscriptionUpdated(
-  repos: ReturnType<typeof createD1Repositories>,
-  subscription: Stripe.Subscription,
-  env: Env
-) {
-  const existingSub = await repos.subscriptions.findByStripeSubscriptionId(subscription.id);
-  // Subscriptions now carry two items — the flat plan price and a metered
-  // overage price. Determine the plan from the flat (non-metered) item; the
-  // overage price must not be mistaken for the plan. Matching on usage_type
-  // also covers env-provisioned prices absent from PRICE_TO_PLAN.
-  const flatItem = subscription.items.data.find(
-    (it) => it.price.recurring?.usage_type !== "metered"
-  );
-  const priceId = flatItem?.price.id ?? subscription.items.data[0]?.price.id ?? "";
-  const plan = getPlanFromPriceId(priceId);
-  if (plan === null) {
-    // An unrecognized price must never silently grant a plan. Log loudly,
-    // change nothing, and return 200 (a retry won't resolve a config gap).
-    console.error(`Stripe webhook: unknown price ID ${priceId} on sub ${subscription.id}`);
-    const { logEvent } = await import("../../lib/axiom.js");
-    await logEvent(
-      env,
-      "stripe.unknown_price",
-      { priceId, subscriptionId: subscription.id, customerId: String(subscription.customer) },
-      "error"
-    ).catch(() => undefined);
-    return;
-  }
-
-  const subData = {
-    stripeSubscriptionId: subscription.id,
-    stripePriceId: priceId,
-    status: subscription.status as "active" | "trialing" | "canceled" | "past_due",
-    currentPeriodStart: new Date(subscription.current_period_start * 1000).toISOString(),
-    currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
-    cancelAtPeriodEnd: subscription.cancel_at_period_end,
-    plan,
-  };
-
-  let organizationId: string | undefined;
-
-  if (existingSub) {
-    await repos.subscriptions.update(existingSub.id, subData);
-    organizationId = existingSub.organizationId;
-  } else {
-    // Find organization by customer ID
-    const org = await repos.organizations.findByStripeCustomerId(subscription.customer as string);
-
-    if (org) {
-      await repos.subscriptions.create({
-        id: crypto.randomUUID(),
-        organizationId: org.id,
-        ...subData,
-      });
-      organizationId = org.id;
-    }
-  }
-
-  // Reapply retention policy: paid plans clear policy_expires_at on the org's
-  // links; downgrades to free re-stamp it. Active or trialing plans count as
-  // "the current plan"; anything else (canceled, past_due, etc.) reverts to
-  // free retention.
-  if (organizationId) {
-    const effectivePlan: SubscriptionPlan =
-      subData.status === "active" || subData.status === "trialing" ? plan : "free";
-    try {
-      const db = drizzle(env.DB, { schema });
-      const result = await applyRetentionForOrg(db, organizationId, effectivePlan);
-      if (result.cleared > 0 || result.stamped > 0) {
-      }
-    } catch (error) {
-      console.error(`Failed to apply retention for org ${organizationId}:`, error);
-    }
-
-    if (effectivePlan !== "free") {
-      await clearClickQuotaFlags(env, organizationId);
-    }
-
-    // Funnel event — fire on plan changes (new sub, upgrade, downgrade, cancel).
-    const previousPlan = existingSub?.plan ?? "free";
-    if (previousPlan !== plan) {
-      const eventName = rank(plan) > rank(previousPlan) ? "plan_upgraded" : "plan_downgraded";
-      await captureEvent(env, {
-        event: eventName,
-        distinctId: organizationId,
-        properties: {
-          organizationId,
-          previousPlan,
-          newPlan: plan,
-          status: subData.status,
-          stripeSubscriptionId: subscription.id,
-        },
-      });
-    }
-  }
-}
-
-// A paid plan absorbs click overage through the usage meter, so the free-tier
-// degrade flag written by the usage cron must lift immediately on upgrade —
-// both the org-scoped flag and the owner's personal-scope flag (links created
-// outside an org carry only userId).
-async function clearClickQuotaFlags(env: Env, organizationId: string): Promise<void> {
-  if (!env.LINKS_KV) return;
-  try {
-    const { getClicksQuotaFlagKey } = await import("../../lib/usage.js");
-    const deletions = [env.LINKS_KV.delete(getClicksQuotaFlagKey(organizationId))];
-    const db = drizzle(env.DB, { schema });
-    const owner = await db
-      .select({ userId: schema.organizationMembers.userId })
-      .from(schema.organizationMembers)
-      .where(
-        and(
-          eq(schema.organizationMembers.organizationId, organizationId),
-          eq(schema.organizationMembers.role, "owner")
-        )
-      )
-      .limit(1);
-    if (owner[0]) {
-      deletions.push(env.LINKS_KV.delete(getClicksQuotaFlagKey(owner[0].userId)));
-    }
-    await Promise.all(deletions);
-  } catch (error) {
-    console.error(`Failed to clear click-quota flag for org ${organizationId}:`, error);
-  }
-}
-
-function rank(plan: string): number {
-  switch (plan) {
-    case "enterprise":
-      return 4;
-    case "scale":
-      return 3;
-    case "business":
-      return 2;
-    case "pro":
-      return 1;
-    default:
-      return 0;
-  }
-}
-
 async function handleSubscriptionDeleted(
   repos: ReturnType<typeof createD1Repositories>,
   subscription: Stripe.Subscription,
@@ -480,22 +315,55 @@ async function handleInvoicePaid(
     console.error("Failed to resolve dunning:", error);
   }
 
-  // Queue invoice email
+  // Queue receipt email. Pass fully-formed display data — the previous payload
+  // omitted customerName and items, so the template fell back to "Hi Customer"
+  // and a hardcoded "Pro Plan - Monthly $49.00" line for every customer, and
+  // sent the amount as a bare "9.00" with no currency symbol.
   if (env.BACKGROUND_QUEUE && invoice.customer_email) {
+    const currency = invoice.currency || "usd";
+    const items = (invoice.lines?.data ?? [])
+      .filter((line) => typeof line.amount === "number")
+      .map((line) => ({
+        description: line.description || "Subscription",
+        amount: formatMoney(line.amount, currency),
+      }));
+
     await env.BACKGROUND_QUEUE.send({
       type: "email:send",
       payload: {
         to: invoice.customer_email,
         template: "invoice",
         data: {
+          customerName: invoice.customer_name || undefined,
           invoiceNumber: invoice.number,
-          amount: (invoice.amount_paid / 100).toFixed(2),
-          currency: invoice.currency?.toUpperCase(),
+          amount: formatMoney(invoice.amount_paid, currency),
+          currency: currency.toUpperCase(),
+          items: items.length > 0 ? items : undefined,
           invoiceUrl: invoice.hosted_invoice_url,
           pdfUrl: invoice.invoice_pdf,
+          paidOn: new Date(
+            (invoice.status_transitions?.paid_at ?? invoice.created) * 1000
+          ).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
         },
       },
     });
+  }
+}
+
+/**
+ * Format a Stripe minor-unit amount (e.g. cents) into a display string with the
+ * correct currency symbol, e.g. (900, "usd") -> "$9.00".
+ */
+function formatMoney(amountMinor: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currency.toUpperCase(),
+    }).format(amountMinor / 100);
+  } catch {
+    const symbols: Record<string, string> = { usd: "$", eur: "€", gbp: "£", inr: "₹" };
+    const symbol = symbols[currency.toLowerCase()] ?? "";
+    return `${symbol}${(amountMinor / 100).toFixed(2)} ${currency.toUpperCase()}`.trim();
   }
 }
 

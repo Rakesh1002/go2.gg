@@ -14,6 +14,7 @@ import Stripe from "stripe";
 import { z } from "zod";
 import type { Env } from "../bindings.js";
 import { badRequest, forbidden, notFound, ok } from "../lib/response.js";
+import { syncSubscriptionFromStripe } from "../lib/subscription-sync.js";
 import { authMiddleware } from "../middleware/auth.js";
 
 const billing = new Hono<{ Bindings: Env }>();
@@ -44,6 +45,10 @@ const checkoutSchema = z.object({
 
 const portalSchema = z.object({
   organizationId: z.string().uuid(),
+});
+
+const confirmSchema = z.object({
+  sessionId: z.string().min(1),
 });
 
 // -----------------------------------------------------------------------------
@@ -125,6 +130,18 @@ billing.post("/checkout", zValidator("json", checkoutSchema), async (c) => {
         organizationId: orgId ?? "",
         userId: user.id,
       },
+      // Stamp the org on the subscription itself so the subscription webhook
+      // (and the /confirm reconcile) can resolve the org directly, instead of
+      // depending on checkout.session.completed having already written the
+      // customer→org mapping. Without this, when Stripe delivers
+      // customer.subscription.created before checkout.session.completed, the
+      // subscription record was silently never created.
+      subscription_data: {
+        metadata: {
+          organizationId: orgId ?? "",
+          userId: user.id,
+        },
+      },
     };
 
     // Use the org's existing customer when there is one. Otherwise just pass
@@ -149,6 +166,81 @@ billing.post("/checkout", zValidator("json", checkoutSchema), async (c) => {
       c,
       error instanceof Error ? error.message : "Failed to create checkout session",
       "CHECKOUT_FAILED"
+    );
+  }
+});
+
+/**
+ * POST /billing/confirm
+ * Reconcile a completed checkout synchronously from its session id.
+ *
+ * Stripe webhooks are eventually-consistent: the user is redirected back to the
+ * billing page a beat before the subscription webhook lands, so the page would
+ * otherwise still read "Free". This endpoint retrieves the session's
+ * subscription straight from Stripe and upserts the local record on demand, so
+ * the upgrade is reflected the instant the success page loads. It is idempotent
+ * with (and a safety net for) the webhook.
+ */
+billing.post("/confirm", zValidator("json", confirmSchema), async (c) => {
+  const user = c.get("user");
+  const { sessionId } = c.req.valid("json");
+  const stripe = getStripe(c.env);
+  const db = drizzle(c.env.DB, { schema });
+  const repos = createD1Repositories(db);
+
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await stripe.checkout.sessions.retrieve(sessionId);
+  } catch (error) {
+    console.error("Confirm: failed to retrieve session:", error);
+    return notFound(c, "Checkout session not found");
+  }
+
+  const orgId = session.metadata?.organizationId;
+  if (!orgId) {
+    return badRequest(c, "Checkout session is not linked to an organization", "NO_ORG");
+  }
+
+  // The session id is a bearer-ish secret, but verify membership anyway so a
+  // leaked/guessed session id can't be used to read another org's plan state.
+  const membership = await c.env.DB.prepare(
+    `SELECT role FROM organization_members
+       WHERE user_id = ? AND organization_id = ?
+       LIMIT 1`
+  )
+    .bind(user.id, orgId)
+    .first<{ role: string }>();
+  if (!membership) {
+    return forbidden(c, "You don't have access to this organization");
+  }
+
+  // Persist the customer→org mapping if the webhook hasn't yet (powers the
+  // portal + the customer-id fallback path).
+  const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
+  if (customerId) {
+    await repos.organizations.update(orgId, { stripeCustomerId: customerId });
+  }
+
+  const subscriptionId =
+    typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+  if (!subscriptionId) {
+    // Not a subscription checkout (or not yet created) — report current state.
+    const current = await repos.subscriptions.findActiveByOrganization(orgId);
+    return ok(c, { plan: current?.plan ?? "free", pending: session.payment_status !== "paid" });
+  }
+
+  try {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const result = await syncSubscriptionFromStripe(c.env, repos, subscription, {
+      hintOrgId: orgId,
+    });
+    return ok(c, { plan: result?.plan ?? "free", pending: false });
+  } catch (error) {
+    console.error("Confirm: failed to sync subscription:", error);
+    return badRequest(
+      c,
+      error instanceof Error ? error.message : "Failed to confirm subscription",
+      "CONFIRM_FAILED"
     );
   }
 });

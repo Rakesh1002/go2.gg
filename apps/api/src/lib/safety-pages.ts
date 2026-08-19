@@ -1,16 +1,14 @@
 /**
- * Safety interstitial + disabled-link HTML pages
+ * Safety + access HTML pages
  *
- * Two pages, both lightweight inline HTML (no framework, no client JS deps):
+ * Lightweight inline HTML (no framework, no client JS deps):
  *
- *   1. renderInterstitial — "you're about to visit X" warning shown for
- *      brand-new links (< 24h old) and any link still in "unknown" threat
- *      state. The redirect URL is presented as plain text, never auto-
- *      followed. A confirm button posts a small fetch to /api/v1/r/:id/go
- *      which sets a session-scoped cookie, then redirects.
+ *   1. renderDisabledPage — 410 Gone replacement shown when a link is flagged
+ *      (Safe Browsing / URL Scanner / rescan) or disabled by an admin. This is
+ *      the ONLY safety stop on the redirect path; clean and unverified links
+ *      redirect instantly. Includes a "report a different link" button.
  *
- *   2. renderDisabledPage — 410 Gone replacement that explains why a link
- *      was disabled. Includes a "report a different link" button.
+ *   2. renderPasswordPage — password-gate form for password-protected links.
  *
  * Both pages are noindex'd, no-cache, and minimal-CSS so they render fast
  * and don't get crawled / cached as part of the shortener's footprint.
@@ -57,17 +55,6 @@ const COMMON_HEAD = `
     line-height: 1.3;
   }
   p { color: var(--muted); line-height: 1.5; margin: 0 0 16px; }
-  .dest {
-    background: #0b0b0c;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px 12px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 13px;
-    word-break: break-all;
-    color: var(--fg);
-    margin-bottom: 16px;
-  }
   .row { display: flex; gap: 8px; flex-wrap: wrap; }
   .btn {
     flex: 1;
@@ -111,46 +98,6 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-export function renderInterstitial(opts: {
-  shortUrl: string;
-  destination: string;
-  reason: "new_link" | "unknown_threat" | "user_choice";
-}): string {
-  const dest = escapeHtml(opts.destination);
-  const shortUrl = escapeHtml(opts.shortUrl);
-  const reasonCopy: Record<typeof opts.reason, string> = {
-    new_link:
-      "This short link was created very recently. We add a quick preview step on new links to protect you from phishing.",
-    unknown_threat:
-      "We haven't been able to verify this destination yet. Confirm you trust it before continuing.",
-    user_choice: "You asked to preview links before being redirected.",
-  };
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-  ${COMMON_HEAD}
-  <title>Continue to destination – go2.gg</title>
-</head>
-<body>
-  <main class="card">
-    <span class="badge badge-warn">Preview</span>
-    <h1>You're about to visit:</h1>
-    <div class="dest">${dest}</div>
-    <p>${reasonCopy[opts.reason]}</p>
-    <div class="row">
-      <a href="${dest}" rel="noopener noreferrer" class="btn btn-primary">Continue</a>
-      <a href="https://go2.gg/report-abuse?url=${encodeURIComponent(opts.shortUrl)}" class="btn btn-danger">Report abuse</a>
-    </div>
-    <small>
-      <strong>${shortUrl}</strong> → ${dest}<br>
-      Shortened by <a href="https://go2.gg" rel="noopener">go2.gg</a> · We never proxy traffic or modify the destination.
-    </small>
-  </main>
-</body>
-</html>`;
 }
 
 export function renderDisabledPage(opts: { shortUrl: string; reason: string }): string {

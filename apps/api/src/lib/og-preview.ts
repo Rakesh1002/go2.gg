@@ -19,6 +19,20 @@ export function isLinkPreviewBot(userAgent: string): boolean {
   return PREVIEW_BOT_RE.test(userAgent);
 }
 
+/**
+ * Should this request be served an OG preview page instead of the 302?
+ *
+ * A real browser opening a short link sends `Sec-Fetch-Mode: navigate`; it
+ * wants to *go* somewhere, so it gets the instant redirect. Everything else —
+ * known preview bots, OG validators (OrcaScan), and any server-side fetcher
+ * that doesn't follow redirects — gets the OG page so the preview resolves at
+ * the short URL itself. Old browsers that omit Sec-Fetch fall here too and
+ * still reach the destination via the page's meta-refresh.
+ */
+export function wantsOgPreview(userAgent: string, secFetchMode: string | undefined): boolean {
+  return isLinkPreviewBot(userAgent) || secFetchMode !== "navigate";
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")

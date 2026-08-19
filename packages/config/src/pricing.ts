@@ -95,7 +95,7 @@ export const pricingPlans: PricingPlan[] = [
     priceAnnual: 86,
     stripePriceIdMonthly: process.env.STRIPE_PRICE_PRO_MONTHLY ?? "price_1TgyYu43jurh1T6btCXxDvfE",
     stripePriceIdAnnual: process.env.STRIPE_PRICE_PRO_ANNUAL ?? "price_1TgyYu43jurh1T6bVJMu9GM9",
-    stripeOveragePriceId: process.env.STRIPE_OVERAGE_PRICE_PRO ?? "price_1Tgyz443jurh1T6bM87ZdrWG",
+    stripeOveragePriceId: process.env.STRIPE_OVERAGE_PRICE_PRO ?? "price_1ThEQD43jurh1T6bcK2hRc3O",
     recommended: true,
     cta: "Start 14-day trial",
     features: [
@@ -123,7 +123,7 @@ export const pricingPlans: PricingPlan[] = [
     stripePriceIdAnnual:
       process.env.STRIPE_PRICE_BUSINESS_ANNUAL ?? "price_1TgyYx43jurh1T6bkOVdlYup",
     stripeOveragePriceId:
-      process.env.STRIPE_OVERAGE_PRICE_BUSINESS ?? "price_1Tgyz643jurh1T6brEf93srV",
+      process.env.STRIPE_OVERAGE_PRICE_BUSINESS ?? "price_1ThEQF43jurh1T6bQjtVkxs5",
     cta: "Get started",
     features: [
       { name: "Tracked links", included: true, limit: "20K/month" },
@@ -149,7 +149,7 @@ export const pricingPlans: PricingPlan[] = [
       process.env.STRIPE_PRICE_SCALE_MONTHLY ?? "price_1Th1xP43jurh1T6bHJsjxMIm",
     stripePriceIdAnnual: process.env.STRIPE_PRICE_SCALE_ANNUAL ?? "price_1Th1xQ43jurh1T6bQrTPjDFS",
     stripeOveragePriceId:
-      process.env.STRIPE_OVERAGE_PRICE_SCALE ?? "price_1Th1xR43jurh1T6b0AIPKr9z",
+      process.env.STRIPE_OVERAGE_PRICE_SCALE ?? "price_1ThEQH43jurh1T6b7I0nUcND",
     cta: "Get started",
     features: [
       { name: "Everything in Business", included: true },
