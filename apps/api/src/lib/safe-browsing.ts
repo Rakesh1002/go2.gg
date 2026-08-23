@@ -26,6 +26,7 @@ import type { Env } from "../bindings.js";
 import { logEvent } from "./axiom.js";
 import { detectBrandImpersonation } from "./brand-impersonation.js";
 import { type CompiledBlocklist, loadBlocklist, matchBlocklist } from "./destination-blocklist.js";
+import { detectDestinationHeuristics } from "./destination-heuristics.js";
 import { composeThreatVerdict } from "./threat-verdict.js";
 import type { ThreatType, ThreatVerdict } from "./threat-verdict.js";
 
@@ -307,13 +308,29 @@ export async function checkDestinationThreat(
     });
   }
 
+  // Local spam-shape heuristics. Only the redirector-on-free-host combination
+  // blocks; everything else is a label that rides along on the verdict.
+  const local = detectDestinationHeuristics(url);
+  if (local?.severity === "block") {
+    await logEvent(
+      env,
+      "heuristic.block",
+      { reason: local.reason, host: safeHost(url) },
+      "warn"
+    ).catch(() => undefined);
+    return composeThreatVerdict(null, null, null, { reason: local.reason, action: "block" });
+  }
+
+  // The blocklist's own "suspect" entry wins over a heuristic label — it came
+  // from a human investigating a real incident.
+  const softLabel = hit
+    ? ({ reason: `blocklist:${hit.kind}:${hit.value}`, action: "suspect" } as const)
+    : local
+      ? ({ reason: local.reason, action: "suspect" } as const)
+      : null;
+
   const [sb, scanner] = await Promise.all([checkSafeBrowsing(env, url), checkUrlScanner(env, url)]);
-  return composeThreatVerdict(
-    sb,
-    scanner,
-    null,
-    hit ? { reason: `blocklist:${hit.kind}:${hit.value}`, action: "suspect" } : null
-  );
+  return composeThreatVerdict(sb, scanner, null, softLabel);
 }
 
 /**
