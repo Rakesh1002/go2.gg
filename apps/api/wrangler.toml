@@ -142,7 +142,8 @@ crons = [
   "0 */6 * * *",  # Every 6 hours - aggregate analytics
   "0 8 * * *",    # Daily at 8 AM UTC - check usage alerts
   "0 9 * * *",    # Daily at 9 AM UTC - process dunning reminders
-  "*/5 * * * *"   # Every 5 minutes - process drip campaign emails
+  "*/5 * * * *",  # Every 5 minutes - process drip campaign emails
+  "15 * * * *"    # Hourly at :15 - behavioral abuse detection
 ]
 
 # -----------------------------------------------------------------------------
@@ -258,7 +259,8 @@ crons = [
   "0 */6 * * *",
   "0 8 * * *",
   "0 9 * * *",
-  "*/5 * * * *"
+  "*/5 * * * *",
+  "15 * * * *"
 ]
 
 # Secrets (set via wrangler secret put --env production):

@@ -193,6 +193,12 @@ export interface Env {
 
   /** Bearer token used by /admin/* routes for internal operations */
   ADMIN_TOKEN?: string;
+  /**
+   * Behavioral abuse detector. Unset or anything other than "enforce" means
+   * shadow mode — evaluate and log, change nothing. The KV flag
+   * `flag:abuse_enforcement` overrides this so the kill switch needs no deploy.
+   */
+  ABUSE_ENFORCEMENT_MODE?: "shadow" | "enforce";
 
   // -------------------------------------------------------------------------
   // Email Configuration (Cloudflare Email Sending Service)
@@ -310,7 +316,7 @@ export interface CachedLink {
   // Per-destination safety verdict (mirrors links.threat_status). The
   // resolver gates the interstitial on this: "clean" → straight redirect,
   // "flagged" → already disabled (won't reach here), "unknown" → interstitial.
-  threatStatus?: "clean" | "flagged" | "unknown";
+  threatStatus?: "clean" | "flagged" | "suspect" | "unknown";
   // ISO timestamp — used by the redirect handler to gate the interstitial
   // ("show a warning for links created < 24h ago").
   createdAt?: string;

@@ -41,6 +41,8 @@ export { DripUpgradeEmail } from "./templates/drip-upgrade.js";
 export { LinkDisabledForSafetyEmail } from "./templates/link-disabled-for-safety.js";
 export { AbuseReportEmail } from "./templates/abuse-report.js";
 export { PhishingWarningEmail } from "./templates/phishing-warning.js";
+export { AbuseStrikeWarningEmail } from "./templates/abuse-strike-warning.js";
+export { AccountSuspendedEmail } from "./templates/account-suspended.js";
 
 // Components
 export { EmailLayout } from "./components/layout.js";

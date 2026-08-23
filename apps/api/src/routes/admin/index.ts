@@ -748,7 +748,399 @@ admin.post("/abuse-warning", zValidator("json", abuseWarningSchema), async (c) =
     },
   });
 
-  return ok(c, { queued: true, to: input.email, linkCount: input.links.length });
+  // Record the warning as a strike so a human-issued warning carries the same
+  // weight as an automated detection. Previously this route sent an email and
+  // persisted nothing, so repeat offenders reset to zero every time.
+  let strikeId: string | null = null;
+  try {
+    const { drizzle } = await import("drizzle-orm/d1");
+    const schema = await import("@repo/db");
+    const { eq } = await import("drizzle-orm");
+    const db = drizzle(c.env.DB, { schema });
+
+    const [user] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, input.email))
+      .limit(1);
+
+    if (user) {
+      const { ABUSE_THRESHOLDS } = await import("../../lib/abuse-signals.js");
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const { countActiveStrikes } = await import("../../lib/abuse-enforcement.js");
+      const prior = await countActiveStrikes(db, user.id);
+      strikeId = crypto.randomUUID();
+      await db
+        .insert(schema.abuseStrikes)
+        .values({
+          id: strikeId,
+          userId: user.id,
+          organizationId: null,
+          strikeNumber: prior + 1,
+          signal: "manual",
+          tier: "high",
+          action: "strike",
+          status: "active",
+          evidence: JSON.stringify([{ signal: "manual", detail: input.reason }]),
+          linkIds: JSON.stringify(input.links.map((l) => l.shortUrl)),
+          linksDisabled: 0,
+          dedupeKey: `manual:${user.id}:${nowIso}`,
+          notifiedAt: nowIso,
+          expiresAt: new Date(
+            now.getTime() + ABUSE_THRESHOLDS.STRIKE_TTL_DAYS * 86_400_000
+          ).toISOString(),
+          createdAt: nowIso,
+        })
+        .onConflictDoNothing();
+    }
+  } catch {
+    // The email is the primary action here — a strike-ledger failure must not
+    // stop the warning from going out.
+  }
+
+  return ok(c, { queued: true, to: input.email, linkCount: input.links.length, strikeId });
 });
+
+// -----------------------------------------------------------------------------
+// Trust & safety — destination blocklist
+// -----------------------------------------------------------------------------
+
+const blocklistEntrySchema = z.object({
+  kind: z.enum(["host", "host_suffix", "path_prefix", "path_segment"]),
+  value: z.string().min(1).max(255),
+  action: z.enum(["block", "suspect"]).optional().default("block"),
+  reason: z.string().min(1).max(500),
+  incidentId: z.string().max(100).optional(),
+});
+
+/**
+ * GET /admin/blocklist
+ * List blocklist entries, newest first. Filter by incidentId / kind / active.
+ */
+admin.get("/blocklist", async (c) => {
+  const { drizzle } = await import("drizzle-orm/d1");
+  const schema = await import("@repo/db");
+  const { and, desc, eq } = await import("drizzle-orm");
+  const db = drizzle(c.env.DB, { schema });
+
+  const incidentId = c.req.query("incidentId");
+  const kind = c.req.query("kind");
+  const activeOnly = c.req.query("active") !== "false";
+
+  const filters = [];
+  if (incidentId) filters.push(eq(schema.destinationBlocklist.incidentId, incidentId));
+  if (kind) filters.push(eq(schema.destinationBlocklist.kind, kind as never));
+  if (activeOnly) filters.push(eq(schema.destinationBlocklist.isActive, true));
+
+  const rows = await db
+    .select()
+    .from(schema.destinationBlocklist)
+    .where(filters.length > 0 ? and(...filters) : undefined)
+    .orderBy(desc(schema.destinationBlocklist.createdAt))
+    .limit(500);
+
+  return ok(c, { entries: rows, total: rows.length });
+});
+
+/**
+ * POST /admin/blocklist
+ * Upsert entries and republish the compiled KV snapshot. Existing matching
+ * links are disabled retroactively by the rescan cron, which calls the same
+ * checkDestinationThreat this list hangs off.
+ */
+admin.post(
+  "/blocklist",
+  zValidator("json", z.object({ entries: z.array(blocklistEntrySchema).min(1).max(200) })),
+  async (c) => {
+    const { entries } = c.req.valid("json");
+    const { drizzle } = await import("drizzle-orm/d1");
+    const schema = await import("@repo/db");
+    const db = drizzle(c.env.DB, { schema });
+    const { normalizeBlocklistValue, republishBlocklist } = await import(
+      "../../lib/destination-blocklist.js"
+    );
+
+    const now = new Date().toISOString();
+    for (const entry of entries) {
+      const value = normalizeBlocklistValue(entry.kind, entry.value);
+      if (!value) continue;
+      await db
+        .insert(schema.destinationBlocklist)
+        .values({
+          id: crypto.randomUUID(),
+          kind: entry.kind,
+          value,
+          action: entry.action,
+          reason: entry.reason,
+          incidentId: entry.incidentId ?? null,
+          createdBy: "admin",
+          isActive: true,
+          createdAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [schema.destinationBlocklist.kind, schema.destinationBlocklist.value],
+          set: { action: entry.action, reason: entry.reason, isActive: true },
+        });
+    }
+
+    const all = await db.select().from(schema.destinationBlocklist);
+    const published = await republishBlocklist(c.env, all);
+
+    await logEvent(
+      c.env,
+      "blocklist.updated",
+      { added: entries.length, activeTotal: published },
+      "warn"
+    ).catch(() => undefined);
+
+    return ok(c, { added: entries.length, activeTotal: published });
+  }
+);
+
+/**
+ * DELETE /admin/blocklist/:id
+ * Soft-disable — the row stays as the paper trail for abuse-report appeals.
+ */
+admin.delete("/blocklist/:id", async (c) => {
+  const { drizzle } = await import("drizzle-orm/d1");
+  const schema = await import("@repo/db");
+  const { eq } = await import("drizzle-orm");
+  const db = drizzle(c.env.DB, { schema });
+  const { republishBlocklist } = await import("../../lib/destination-blocklist.js");
+
+  await db
+    .update(schema.destinationBlocklist)
+    .set({ isActive: false })
+    .where(eq(schema.destinationBlocklist.id, c.req.param("id")));
+
+  const all = await db.select().from(schema.destinationBlocklist);
+  const published = await republishBlocklist(c.env, all);
+
+  return ok(c, { id: c.req.param("id"), isActive: false, activeTotal: published });
+});
+
+/**
+ * POST /admin/blocklist/republish
+ * Rebuild the KV snapshot from D1. Recovery path if the two ever diverge.
+ */
+admin.post("/blocklist/republish", async (c) => {
+  const { drizzle } = await import("drizzle-orm/d1");
+  const schema = await import("@repo/db");
+  const db = drizzle(c.env.DB, { schema });
+  const { republishBlocklist } = await import("../../lib/destination-blocklist.js");
+
+  const all = await db.select().from(schema.destinationBlocklist);
+  const published = await republishBlocklist(c.env, all);
+  return ok(c, { activeTotal: published });
+});
+
+/**
+ * GET /admin/blocklist/propose/:linkId
+ *
+ * The ergonomic core of "one investigation → permanent coverage". Derives
+ * candidate entries from an abusive link's destination and reports how many
+ * existing links each candidate would match, so the blast radius is visible
+ * before anything is committed. Review, then POST the subset you want.
+ */
+admin.get("/blocklist/propose/:linkId", async (c) => {
+  const { drizzle } = await import("drizzle-orm/d1");
+  const schema = await import("@repo/db");
+  const { eq } = await import("drizzle-orm");
+  const db = drizzle(c.env.DB, { schema });
+  const { proposeBlocklistEntries, matchBlocklist, compileBlocklist } = await import(
+    "../../lib/destination-blocklist.js"
+  );
+
+  const [link] = await db
+    .select({ id: schema.links.id, destinationUrl: schema.links.destinationUrl })
+    .from(schema.links)
+    .where(eq(schema.links.id, c.req.param("linkId")))
+    .limit(1);
+  if (!link) {
+    return c.json({ success: false, error: { code: "NOT_FOUND", message: "Link not found" } }, 404);
+  }
+
+  const candidates = proposeBlocklistEntries(link.destinationUrl);
+  const allLinks = await db
+    .select({
+      id: schema.links.id,
+      userId: schema.links.userId,
+      destinationUrl: schema.links.destinationUrl,
+    })
+    .from(schema.links);
+
+  const proposals = candidates.map((candidate) => {
+    const list = compileBlocklist([{ ...candidate, action: "block" as const, reason: "preview" }]);
+    const matches = allLinks.filter((l) => matchBlocklist(l.destinationUrl, list) !== null);
+    return {
+      ...candidate,
+      wouldMatchLinks: matches.length,
+      wouldMatchAccounts: new Set(matches.map((m) => m.userId).filter(Boolean)).size,
+    };
+  });
+
+  return ok(c, { linkId: link.id, destinationUrl: link.destinationUrl, proposals });
+});
+
+// -----------------------------------------------------------------------------
+// Trust & safety — behavioral abuse strikes
+// -----------------------------------------------------------------------------
+
+/**
+ * GET /admin/abuse/strikes
+ * Full strike list with parsed evidence. Filter by userId / status / action.
+ */
+admin.get("/abuse/strikes", async (c) => {
+  const { drizzle } = await import("drizzle-orm/d1");
+  const schema = await import("@repo/db");
+  const { and, desc, eq } = await import("drizzle-orm");
+  const db = drizzle(c.env.DB, { schema });
+
+  const userId = c.req.query("userId");
+  const status = c.req.query("status");
+  const action = c.req.query("action");
+
+  const filters = [];
+  if (userId) filters.push(eq(schema.abuseStrikes.userId, userId));
+  if (status) filters.push(eq(schema.abuseStrikes.status, status as never));
+  if (action) filters.push(eq(schema.abuseStrikes.action, action as never));
+
+  const rows = await db
+    .select()
+    .from(schema.abuseStrikes)
+    .where(filters.length > 0 ? and(...filters) : undefined)
+    .orderBy(desc(schema.abuseStrikes.createdAt))
+    .limit(Number(c.req.query("limit") ?? 100));
+
+  return ok(c, {
+    strikes: rows.map((r) => ({
+      ...r,
+      evidence: JSON.parse(r.evidence || "[]"),
+      linkIds: JSON.parse(r.linkIds || "[]"),
+    })),
+    total: rows.length,
+  });
+});
+
+/**
+ * POST /admin/abuse/scan
+ * On-demand detection pass. Defaults to a shadow dry-run that does not consume
+ * the velocity baselines, so it is safe to use for threshold tuning.
+ */
+admin.post(
+  "/abuse/scan",
+  zValidator(
+    "json",
+    z
+      .object({
+        userId: z.string().optional(),
+        mode: z.enum(["shadow", "enforce"]).optional(),
+        dryRun: z.boolean().optional().default(true),
+      })
+      .optional()
+  ),
+  async (c) => {
+    const body = c.req.valid("json");
+    const { drizzle } = await import("drizzle-orm/d1");
+    const schema = await import("@repo/db");
+    const db = drizzle(c.env.DB, { schema });
+    const { runAbuseDetectionPass } = await import("../../lib/abuse-detection.js");
+
+    const dryRun = body?.dryRun !== false;
+    const result = await runAbuseDetectionPass(c.env, db, {
+      forceMode: dryRun ? "shadow" : body?.mode,
+      userId: body?.userId,
+      skipWriteback: dryRun,
+    });
+    return ok(c, result);
+  }
+);
+
+/**
+ * POST /admin/abuse/strikes/:id/revoke
+ * The appeal path. Count is computed from status='active', so revoking a
+ * strike immediately drops the user back down the ladder — no recount job.
+ */
+admin.post(
+  "/abuse/strikes/:id/revoke",
+  zValidator(
+    "json",
+    z.object({ reason: z.string().min(1).max(500), reenableLinks: z.boolean().optional() })
+  ),
+  async (c) => {
+    const strikeId = c.req.param("id");
+    const { reason, reenableLinks } = c.req.valid("json");
+    const { drizzle } = await import("drizzle-orm/d1");
+    const schema = await import("@repo/db");
+    const { eq } = await import("drizzle-orm");
+    const db = drizzle(c.env.DB, { schema });
+
+    const [strike] = await db
+      .select()
+      .from(schema.abuseStrikes)
+      .where(eq(schema.abuseStrikes.id, strikeId))
+      .limit(1);
+    if (!strike) {
+      return c.json(
+        { success: false, error: { code: "NOT_FOUND", message: "Strike not found" } },
+        404
+      );
+    }
+
+    const now = new Date().toISOString();
+    await db
+      .update(schema.abuseStrikes)
+      .set({ status: "revoked", revokedAt: now, revokedBy: "admin", revokedReason: reason })
+      .where(eq(schema.abuseStrikes.id, strikeId));
+
+    let reenabled = 0;
+    if (reenableLinks) {
+      const { reenableLinksForAbuse } = await import("../../lib/abuse-enforcement.js");
+      reenabled = await reenableLinksForAbuse(
+        c.env,
+        db,
+        JSON.parse(strike.linkIds || "[]") as string[]
+      );
+    }
+
+    await logEvent(
+      c.env,
+      "abuse.strike.revoked",
+      { strikeId, userId: strike.userId, reason, reenabledLinks: reenabled },
+      "warn"
+    ).catch(() => undefined);
+
+    return ok(c, { strikeId, status: "revoked", reenabledLinks: reenabled });
+  }
+);
+
+/**
+ * PATCH /admin/users/:id/abuse-exempt
+ * Allowlist a known-good high-volume account: it is still evaluated and
+ * logged, but never enforced. No deploy needed.
+ */
+admin.patch(
+  "/users/:id/abuse-exempt",
+  zValidator("json", z.object({ exempt: z.boolean() })),
+  async (c) => {
+    const userId = c.req.param("id");
+    const { exempt } = c.req.valid("json");
+    const { drizzle } = await import("drizzle-orm/d1");
+    const schema = await import("@repo/db");
+    const db = drizzle(c.env.DB, { schema });
+    const now = new Date().toISOString();
+
+    await db
+      .insert(schema.userMetadata)
+      .values({ userId, abuseExempt: exempt, createdAt: now, updatedAt: now })
+      .onConflictDoUpdate({
+        target: schema.userMetadata.userId,
+        set: { abuseExempt: exempt, updatedAt: now },
+      });
+
+    return ok(c, { userId, abuseExempt: exempt });
+  }
+);
 
 export { admin };

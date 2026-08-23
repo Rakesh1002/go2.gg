@@ -32,6 +32,13 @@ import {
   listProviders,
   validateCredentials,
 } from "../../lib/migrations/index.js";
+import {
+  UNKNOWN_VERDICT,
+  checkDestinationThreatBatch,
+  shouldBlockOnCreate,
+} from "../../lib/safe-browsing.js";
+import { checkSlugAbuse } from "../../lib/slug-abuse.js";
+import { isReservedSlug } from "../../lib/slug.js";
 import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
 
 const migrations = new Hono<{ Bindings: Env }>();
@@ -229,9 +236,31 @@ migrations.post("/start", async (c) => {
         let failed = 0;
         const errors: Array<{ link: string; error: string }> = [];
 
+        // Screen every destination before inserting. A competitor export is
+        // untrusted input like any other — this path previously inserted with
+        // no threat check, no reserved-slug check, and no slug-abuse check,
+        // while preserving competitor slugs verbatim by default.
+        //
+        // This whole block runs inside waitUntil, so nothing is waiting on the
+        // response and the screening latency is free. Budget generously.
+        const { verdicts: migrationVerdicts } = await checkDestinationThreatBatch(
+          c.env,
+          links.map((l) => l.originalUrl),
+          { budgetMs: 25_000 }
+        );
+
         // Import each link
         for (const link of links) {
           try {
+            const verdict = migrationVerdicts.get(link.originalUrl) ?? UNKNOWN_VERDICT;
+            if (shouldBlockOnCreate(verdict)) {
+              failed++;
+              errors.push({
+                link: link.shortUrl ?? link.originalUrl,
+                error: `destination_blocked:${verdict.verdict}`,
+              });
+              continue;
+            }
             // Check for duplicate slug if skipDuplicates is enabled
             if (parsed.data.options?.skipDuplicates !== false) {
               const existing = await db
@@ -249,7 +278,14 @@ migrations.post("/start", async (c) => {
             }
 
             // Generate new slug if not preserving
-            const slug = parsed.data.options?.preserveSlugs !== false ? link.slug : nanoid(7);
+            let slug = parsed.data.options?.preserveSlugs !== false ? link.slug : nanoid(7);
+
+            // Preserved competitor slugs are untrusted: they can land on a
+            // reserved path or impersonate a brand. Regenerate rather than
+            // fail the row — the destination check carries the security weight.
+            if (isReservedSlug(slug) || checkSlugAbuse(slug, link.originalUrl).blocked) {
+              slug = nanoid(7);
+            }
 
             const linkId = nanoid();
 
@@ -263,6 +299,9 @@ migrations.post("/start", async (c) => {
               domain: defaultDomain,
               title: link.title,
               clickCount: link.clickCount ?? 0,
+              threatStatus: verdict.status,
+              threatVerdict: verdict.verdict || null,
+              threatLastChecked: verdict.status === "unknown" ? null : new Date().toISOString(),
               createdAt: link.createdAt ?? new Date().toISOString(),
               updatedAt: new Date().toISOString(),
               migrationId,

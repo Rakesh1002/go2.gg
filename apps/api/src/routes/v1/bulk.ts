@@ -15,6 +15,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Env } from "../../bindings.js";
+import { logEvent } from "../../lib/axiom.js";
 import { serializeCachedLink, syncLinkToKV } from "../../lib/cached-link.js";
 import {
   type ImportFormat,
@@ -32,11 +33,20 @@ import {
   ok,
   paymentRequired,
 } from "../../lib/response.js";
+import {
+  UNKNOWN_VERDICT,
+  checkDestinationThreatBatch,
+  shouldBlockOnCreate,
+} from "../../lib/safe-browsing.js";
+import { checkSlugAbuse } from "../../lib/slug-abuse.js";
 import { generateSlug, isReservedSlug } from "../../lib/slug.js";
 import { checkLinkLimit, getOrgUsage } from "../../lib/usage.js";
 import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
 
 const bulk = new Hono<{ Bindings: Env }>();
+
+/** Matches the 1000-row cap the sibling bulk delete/archive schemas enforce. */
+const MAX_IMPORT_ROWS = 1000;
 
 // All routes require authentication (supports both API keys and session auth)
 bulk.use("/*", apiKeyAuthMiddleware());
@@ -122,6 +132,16 @@ bulk.post("/import", zValidator("query", importQuerySchema), async (c) => {
     });
   }
 
+  // Bound worst-case screening latency and D1 write volume. The sibling
+  // bulk delete/archive schemas already cap at 1000; import had no cap.
+  if (importResult.links.length > MAX_IMPORT_ROWS) {
+    return badRequest(
+      c,
+      `Import is limited to ${MAX_IMPORT_ROWS} rows per request (received ${importResult.links.length})`,
+      "IMPORT_TOO_LARGE"
+    );
+  }
+
   // Check usage limits
   const usage = await getOrgUsage(db, user.id, user.organizationId);
   const linkCheck = checkLinkLimit(usage);
@@ -149,15 +169,41 @@ bulk.post("/import", zValidator("query", importQuerySchema), async (c) => {
     });
   }
 
+  // Screen every destination before inserting anything. This path used to
+  // insert with no threat check at all, making it a complete bypass of the
+  // controls every other create path runs.
+  const { verdicts, stats } = await checkDestinationThreatBatch(
+    c.env,
+    importResult.links.map((l) => l.destinationUrl)
+  );
+  await logEvent(
+    c.env,
+    "bulk.import.screened",
+    { rows: importResult.links.length, ...stats },
+    stats.budgetExhausted ? "warn" : "info"
+  ).catch(() => undefined);
+
   // Create links
   const defaultDomain = c.env.DEFAULT_DOMAIN ?? "go2.gg";
   const now = new Date().toISOString();
   const createdLinks: Array<{ id: string; shortUrl: string; destinationUrl: string }> = [];
   const creationErrors: Array<{ row: number; reason: string }> = [];
+  const blocked: Array<{ row: number; destinationUrl: string; reason: string }> = [];
+  const warnings: Array<{ row: number; reason: string }> = [];
 
   for (let i = 0; i < importResult.links.length; i++) {
     const link = importResult.links[i];
     const domain = link.domain || defaultDomain;
+
+    const verdict = verdicts.get(link.destinationUrl) ?? UNKNOWN_VERDICT;
+    if (shouldBlockOnCreate(verdict)) {
+      blocked.push({
+        row: i + 2,
+        destinationUrl: link.destinationUrl,
+        reason: verdict.verdict,
+      });
+      continue;
+    }
 
     // Generate slug if not provided
     let slug = link.slug ?? generateSlug();
@@ -165,6 +211,14 @@ bulk.post("/import", zValidator("query", importQuerySchema), async (c) => {
     // Check if slug is reserved
     if (isReservedSlug(slug)) {
       slug = generateSlug();
+    }
+
+    // CSV rows carry user-supplied slugs, so "paypal-login" reached D1 here.
+    // Regenerate rather than fail the row — the destination check carries the
+    // security weight, and the customer still gets their link.
+    if (link.slug && checkSlugAbuse(link.slug, link.destinationUrl).blocked) {
+      slug = generateSlug();
+      warnings.push({ row: i + 2, reason: "slug_replaced_brand_risk" });
     }
 
     // Check if slug already exists for this domain
@@ -207,6 +261,12 @@ bulk.post("/import", zValidator("query", importQuerySchema), async (c) => {
         ogTitle: link.ogTitle,
         ogDescription: link.ogDescription,
         ogImage: link.ogImage,
+        threatStatus: verdict.status,
+        threatVerdict: verdict.verdict || null,
+        // null means "never checked", which puts the row at the front of the
+        // rescan cron's oldest-first queue. Anything the batch budget skipped
+        // gets a real verdict within one pass.
+        threatLastChecked: verdict.status === "unknown" ? null : now,
         createdAt: now,
         updatedAt: now,
       } satisfies schema.NewLink;
@@ -226,7 +286,8 @@ bulk.post("/import", zValidator("query", importQuerySchema), async (c) => {
       });
     } catch (error) {
       creationErrors.push({
-        row: i + 1,
+        // i + 2 matches importResult.errors: 1-indexed, plus the header row.
+        row: i + 2,
         reason: error instanceof Error ? error.message : "Unknown error",
       });
     }
@@ -239,9 +300,18 @@ bulk.post("/import", zValidator("query", importQuerySchema), async (c) => {
 
   return created(c, {
     imported: createdLinks.length,
-    failed: creationErrors.length + importResult.failed,
+    failed: creationErrors.length + importResult.failed + blocked.length,
+    blocked: blocked.length,
+    blockedRows: blocked,
+    warnings,
     links: createdLinks,
-    errors: [...importResult.errors, ...creationErrors],
+    // Blocked rows also appear in `errors` so existing clients that only read
+    // that field still surface them.
+    errors: [
+      ...importResult.errors,
+      ...creationErrors,
+      ...blocked.map((b) => ({ row: b.row, reason: `destination_blocked:${b.reason}` })),
+    ],
   });
 });
 

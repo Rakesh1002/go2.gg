@@ -422,6 +422,8 @@ export const userMetadata = sqliteTable("user_metadata", {
   bannedAt: text("banned_at"),
   bannedReason: text("banned_reason"),
   referralCode: text("referral_code"), // Code used when signing up
+  /** Allowlist for the behavioral abuse detector — detect and log, never enforce. */
+  abuseExempt: integer("abuse_exempt", { mode: "boolean" }).default(false),
   lastLoginAt: text("last_login_at"),
   loginCount: integer("login_count").default(0),
   createdAt: text("created_at")
@@ -626,11 +628,22 @@ export const links = sqliteTable(
     // raw verdict string from whichever scanner flagged it (e.g.
     // 'safe_browsing:SOCIAL_ENGINEERING'). threat_last_checked is the cron
     // bookmark used by the daily rescan to pick links round-robin.
-    threatStatus: text("threat_status", { enum: ["clean", "flagged", "unknown"] }).default(
+    // "suspect" is a soft label from a local heuristic (spam-shaped, not
+    // malware-shaped). It never blocks a create and never disables a link —
+    // it exists for the behavioral abuse detector to join against.
+    threatStatus: text("threat_status", {
+      enum: ["clean", "flagged", "suspect", "unknown"],
+    }).default(
       "unknown",
     ),
     threatVerdict: text("threat_verdict"),
     threatLastChecked: text("threat_last_checked"),
+    // Click-velocity baseline for the behavioral abuse detector. The delta of
+    // click_count since abuse_scan_at is the only retention-proof velocity
+    // source — the `clicks` table is pruned per plan and skipped entirely for
+    // quota-degraded and bot traffic, while click_count always increments.
+    abuseScanAt: text("abuse_scan_at"),
+    abuseScanClicks: integer("abuse_scan_clicks"),
     // Timestamps
     createdAt: text("created_at")
       .notNull()
@@ -689,6 +702,86 @@ export const abuseReports = sqliteTable(
 
 export type AbuseReport = typeof abuseReports.$inferSelect;
 export type NewAbuseReport = typeof abuseReports.$inferInsert;
+
+// -----------------------------------------------------------------------------
+// Destination Blocklist (trust & safety)
+// -----------------------------------------------------------------------------
+
+export const blocklistKinds = ["host", "host_suffix", "path_prefix", "path_segment"] as const;
+export const blocklistActions = ["block", "suspect"] as const;
+
+export const destinationBlocklist = sqliteTable(
+  "destination_blocklist",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: blocklistKinds }).notNull(),
+    /** Normalized, lowercase. See lib/destination-blocklist.ts for the rules. */
+    value: text("value").notNull(),
+    action: text("action", { enum: blocklistActions }).notNull().default("block"),
+    reason: text("reason").notNull(),
+    /** Groups entries from one investigation so they can be reverted together. */
+    incidentId: text("incident_id"),
+    createdBy: text("created_by"),
+    /** Soft-disable: keeps the paper trail for abuse-report appeals. */
+    isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    uniqueIndex("destination_blocklist_kind_value_idx").on(table.kind, table.value),
+    index("destination_blocklist_active_idx").on(table.isActive),
+  ],
+);
+
+export type DestinationBlocklistEntry = typeof destinationBlocklist.$inferSelect;
+export type NewDestinationBlocklistEntry = typeof destinationBlocklist.$inferInsert;
+
+// -----------------------------------------------------------------------------
+// Abuse Strikes (graduated enforcement ladder)
+// -----------------------------------------------------------------------------
+
+export const abuseStrikeActions = ["strike", "suspend", "flag", "shadow"] as const;
+export const abuseStrikeStatuses = ["active", "revoked"] as const;
+
+export const abuseStrikes = sqliteTable(
+  "abuse_strikes",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id"),
+    strikeNumber: integer("strike_number").notNull(),
+    signal: text("signal").notNull(),
+    tier: text("tier").notNull().default("high"),
+    /** Only "strike" and "suspend" count toward the ladder. */
+    action: text("action", { enum: abuseStrikeActions }).notNull(),
+    status: text("status", { enum: abuseStrikeStatuses }).notNull().default("active"),
+    /** JSON SignalHit[] — must survive the appeal, so never deleted. */
+    evidence: text("evidence").notNull(),
+    linkIds: text("link_ids").notNull(),
+    linksDisabled: integer("links_disabled").notNull().default(0),
+    /** `${userId}:${YYYY-MM-DD}` — DB-level guard behind the 24h cooldown. */
+    dedupeKey: text("dedupe_key").notNull(),
+    notifiedAt: text("notified_at"),
+    expiresAt: text("expires_at"),
+    revokedAt: text("revoked_at"),
+    revokedBy: text("revoked_by"),
+    revokedReason: text("revoked_reason"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    uniqueIndex("abuse_strikes_dedupe_idx").on(table.dedupeKey),
+    index("abuse_strikes_user_idx").on(table.userId, table.createdAt),
+    index("abuse_strikes_status_idx").on(table.status, table.action),
+  ],
+);
+
+export type AbuseStrike = typeof abuseStrikes.$inferSelect;
+export type NewAbuseStrike = typeof abuseStrikes.$inferInsert;
 
 // -----------------------------------------------------------------------------
 // Custom Domains

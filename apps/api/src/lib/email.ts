@@ -9,43 +9,45 @@
  */
 
 import { render } from "@react-email/render";
-import type { Env, CFEmailMessage } from "../bindings.js";
+import type { CFEmailMessage, Env } from "../bindings.js";
 import { logEvent } from "./axiom.js";
 
 // Template imports
 import {
-  WelcomeEmail,
-  MagicLinkEmail,
-  PasswordResetEmail,
-  OrganizationInviteEmail,
-  InvoiceEmail,
-  PaymentFailedEmail,
-  PurchaseConfirmationEmail,
-  SubscriptionUpdateEmail,
-  SubscriptionCanceledEmail,
-  DunningReminderEmail,
-  UsageAlertEmail,
-  BrokenLinkAlertEmail,
-  GithubAccessGrantedEmail,
-  ContactFormEmail,
-  WaitlistConfirmationEmail,
-  EmailVerificationEmail,
-  EmailOTPEmail,
-  // Drip campaign templates
-  DripWelcomeEmail,
-  DripFirstLinkEmail,
-  DripFeaturesEmail,
-  DripCustomDomainEmail,
-  DripReengagementEmail,
-  DripUpgradeEmail,
+  AbuseReportEmail,
+  AbuseStrikeWarningEmail,
+  AccountSuspendedEmail,
   // Affiliate program
   AffiliateApprovedEmail,
   AffiliateCommissionEarnedEmail,
   AffiliatePayoutSentEmail,
+  BrokenLinkAlertEmail,
+  ContactFormEmail,
+  DripCustomDomainEmail,
+  DripFeaturesEmail,
+  DripFirstLinkEmail,
+  DripReengagementEmail,
+  DripUpgradeEmail,
+  // Drip campaign templates
+  DripWelcomeEmail,
+  DunningReminderEmail,
+  EmailOTPEmail,
+  EmailVerificationEmail,
+  GithubAccessGrantedEmail,
+  InvoiceEmail,
   // Trust & safety
   LinkDisabledForSafetyEmail,
-  AbuseReportEmail,
+  MagicLinkEmail,
+  OrganizationInviteEmail,
+  PasswordResetEmail,
+  PaymentFailedEmail,
   PhishingWarningEmail,
+  PurchaseConfirmationEmail,
+  SubscriptionCanceledEmail,
+  SubscriptionUpdateEmail,
+  UsageAlertEmail,
+  WaitlistConfirmationEmail,
+  WelcomeEmail,
 } from "@repo/email";
 
 /**
@@ -98,7 +100,9 @@ export type EmailTemplate =
   // Trust & safety
   | "link-disabled-for-safety"
   | "abuse-report"
-  | "phishing-warning";
+  | "phishing-warning"
+  | "abuse-strike-warning"
+  | "account-suspended";
 
 /**
  * Default email subjects for each template
@@ -139,7 +143,21 @@ const EMAIL_SUBJECTS: Record<EmailTemplate, string> = {
   "abuse-report": "New abuse report on go2.gg",
   "phishing-warning":
     "Action required: phishing detected on your Go2 link — recurrence will suspend your account",
+  "abuse-strike-warning": "Action required: links disabled on your Go2 account",
+  "account-suspended": "Your Go2 account has been suspended",
 };
+
+/**
+ * Enforcement notices must reach the recipient even if they previously marked
+ * a Go2 email as spam. Without this bypass the ladder silently skips both
+ * warnings and lands on a suspension the user was never told about.
+ */
+const NEVER_SUPPRESS: EmailTemplate[] = [
+  "abuse-strike-warning",
+  "account-suspended",
+  "link-disabled-for-safety",
+  "phishing-warning",
+];
 
 /**
  * Marketing templates (sent from rakesh@go2.gg)
@@ -433,6 +451,31 @@ function renderTemplate(
         appealUrl: (data.appealUrl as string) || "mailto:abuse@go2.gg",
       });
 
+    case "abuse-strike-warning":
+      return AbuseStrikeWarningEmail({
+        customerName: (data.customerName as string) || "there",
+        strikeNumber: (data.strikeNumber as number) ?? 1,
+        strikesBeforeSuspension: (data.strikesBeforeSuspension as number) ?? 3,
+        links:
+          (data.links as Array<{
+            shortUrl: string;
+            destinationUrl: string;
+            clicks: number;
+            createdAt: string;
+          }>) ?? [],
+        signalSummary: (data.signalSummary as string) || "",
+        appealUrl: (data.appealUrl as string) || "mailto:abuse@go2.gg",
+      });
+
+    case "account-suspended":
+      return AccountSuspendedEmail({
+        customerName: (data.customerName as string) || "there",
+        strikeCount: (data.strikeCount as number) ?? 3,
+        priorStrikes: (data.priorStrikes as Array<{ date: string; signalSummary: string }>) ?? [],
+        linksDisabled: (data.linksDisabled as number) ?? 0,
+        appealUrl: (data.appealUrl as string) || "mailto:abuse@go2.gg",
+      });
+
     default:
       console.warn(`Unknown email template: ${template}`);
       return null;
@@ -549,7 +592,7 @@ export async function sendEmail(
     return { success: false, error: "Email service not configured" };
   }
 
-  if (await isSuppressed(env, payload.to)) {
+  if (!NEVER_SUPPRESS.includes(payload.template) && (await isSuppressed(env, payload.to))) {
     await logEvent(
       env,
       "email.send.suppressed",

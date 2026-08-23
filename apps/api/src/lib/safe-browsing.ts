@@ -25,6 +25,7 @@
 import type { Env } from "../bindings.js";
 import { logEvent } from "./axiom.js";
 import { detectBrandImpersonation } from "./brand-impersonation.js";
+import { type CompiledBlocklist, loadBlocklist, matchBlocklist } from "./destination-blocklist.js";
 import { composeThreatVerdict } from "./threat-verdict.js";
 import type { ThreatType, ThreatVerdict } from "./threat-verdict.js";
 
@@ -277,22 +278,113 @@ export async function checkUrlScanner(
  * calls — it needs no upstream, and it is the only layer that catches a
  * newly-registered typosquat while Safe Browsing still reports "no match".
  */
-export async function checkDestinationThreat(env: Env, url: string): Promise<ThreatVerdict> {
+export async function checkDestinationThreat(
+  env: Env,
+  url: string,
+  preloaded?: CompiledBlocklist
+): Promise<ThreatVerdict> {
   const brand = detectBrandImpersonation(url);
   if (brand) {
     return composeThreatVerdict(null, null, brand);
   }
+
+  // Human-confirmed blocklist. A "block" entry short-circuits the network
+  // calls; a "suspect" entry still runs the scanners so a real scanner verdict
+  // can win with a more specific string. `preloaded` lets batch callers
+  // (bulk import, migrations) read the list once for the whole batch.
+  const list = preloaded ?? (await loadBlocklist(env));
+  const hit = matchBlocklist(url, list);
+  if (hit?.action === "block") {
+    await logEvent(
+      env,
+      "blocklist.hit",
+      { kind: hit.kind, value: hit.value, host: safeHost(url), action: hit.action },
+      "warn"
+    ).catch(() => undefined);
+    return composeThreatVerdict(null, null, null, {
+      reason: `blocklist:${hit.kind}:${hit.value}`,
+      action: "block",
+    });
+  }
+
   const [sb, scanner] = await Promise.all([checkSafeBrowsing(env, url), checkUrlScanner(env, url)]);
-  return composeThreatVerdict(sb, scanner);
+  return composeThreatVerdict(
+    sb,
+    scanner,
+    null,
+    hit ? { reason: `blocklist:${hit.kind}:${hit.value}`, action: "suspect" } : null
+  );
 }
 
 /**
  * Convenience: returns true if the destination should be blocked at create
- * time. Treats "unknown" as not-blocking so we don't fail-closed when a key
- * is missing.
+ * time. Treats "unknown" and "suspect" as not-blocking so we don't fail-closed
+ * when a key is missing, and so a soft spam label never rejects a create.
  */
 export function shouldBlockOnCreate(verdict: ThreatVerdict): boolean {
   return verdict.status === "flagged";
+}
+
+export const UNKNOWN_VERDICT: ThreatVerdict = { status: "unknown", verdict: "", scanners: [] };
+
+const BULK_SCREEN_CONCURRENCY = 10;
+const BULK_SCREEN_BUDGET_MS = 15_000;
+
+export interface BatchScreenResult {
+  verdicts: Map<string, ThreatVerdict>;
+  stats: { unique: number; networkChecked: number; budgetExhausted: boolean };
+}
+
+/**
+ * Screen many destinations at once, for bulk import and competitor migration.
+ *
+ * Those two paths inserted links with no destination screening at all, which
+ * made them a complete bypass of the create-time checks every other path pays
+ * for. Bounded concurrency mirrors RESCAN_CONCURRENCY in threat-rescan.ts.
+ *
+ * Partial-failure semantics, deliberately asymmetric: the local layers
+ * (brand heuristic, blocklist) are pure and always run for every URL, so they
+ * never fail open. The network layer is budgeted — anything not screened
+ * before the deadline returns "unknown", which does not block, and is inserted
+ * with threat_last_checked = null so the rescan cron picks it up on its next
+ * pass and disables it retroactively if it turns out bad.
+ */
+export async function checkDestinationThreatBatch(
+  env: Env,
+  urls: string[],
+  opts?: { concurrency?: number; budgetMs?: number }
+): Promise<BatchScreenResult> {
+  const verdicts = new Map<string, ThreatVerdict>();
+  const unique = [...new Set(urls)];
+  if (unique.length === 0) {
+    return { verdicts, stats: { unique: 0, networkChecked: 0, budgetExhausted: false } };
+  }
+
+  // Read the blocklist once for the whole batch rather than per URL.
+  const list = await loadBlocklist(env);
+
+  const concurrency = opts?.concurrency ?? BULK_SCREEN_CONCURRENCY;
+  const deadline = Date.now() + (opts?.budgetMs ?? BULK_SCREEN_BUDGET_MS);
+  let cursor = 0;
+  let networkChecked = 0;
+  let budgetExhausted = false;
+
+  const worker = async (): Promise<void> => {
+    while (cursor < unique.length) {
+      const url = unique[cursor++];
+      if (Date.now() >= deadline) {
+        budgetExhausted = true;
+        verdicts.set(url, UNKNOWN_VERDICT);
+        continue;
+      }
+      networkChecked++;
+      verdicts.set(url, await checkDestinationThreat(env, url, list));
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, unique.length) }, worker));
+
+  return { verdicts, stats: { unique: unique.length, networkChecked, budgetExhausted } };
 }
 
 /**

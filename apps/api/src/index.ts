@@ -1742,6 +1742,34 @@ export default {
         );
         break;
 
+      case "15 * * * *":
+        // Hourly - behavioral abuse detection + graduated enforcement.
+        //
+        // Its own cron rather than a third job on the 4h branch: that branch
+        // already carries link-health plus a 25s rescan budget, and 4h latency
+        // would let an open-tracking pixel bank tens of thousands of opens
+        // before the first look. Hourly also makes the per-hour click-rate
+        // thresholds mean what they say.
+        ctx.waitUntil(
+          (async () => {
+            try {
+              const { drizzle } = await import("drizzle-orm/d1");
+              const schema = await import("@repo/db");
+              const db = drizzle(env.DB, { schema });
+              const { runAbuseDetectionPass } = await import("./lib/abuse-detection.js");
+              const r = await runAbuseDetectionPass(env, db);
+              if (r.highHits > 0 || r.mediumHits > 0 || r.bailedOnBudget) {
+                console.log(
+                  `[cron] abuse: mode=${r.mode} scanned=${r.linksScanned} high=${r.highHits} medium=${r.mediumHits} strikes=${r.strikesIssued} suspended=${r.suspensions} bailed=${r.bailedOnBudget}`
+                );
+              }
+            } catch (error) {
+              await logJobError(env, "abuse-detection", error);
+            }
+          })()
+        );
+        break;
+
       case "0 8 * * *":
         // Daily at 8 AM UTC - check usage alerts
         ctx.waitUntil(
