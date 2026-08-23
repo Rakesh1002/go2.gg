@@ -16,6 +16,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { bearer, emailOTP, magicLink } from "better-auth/plugins";
 import { drizzle } from "drizzle-orm/d1";
+import { isDisposableEmail } from "./disposable-email.js";
 
 // Re-export types
 export type { Session, User } from "better-auth";
@@ -483,6 +484,27 @@ export function createAuth(config: AuthConfig) {
     databaseHooks: {
       user: {
         create: {
+          /**
+           * Reject throwaway signup domains before the row is written.
+           *
+           * This has to live here rather than in the Turnstile gate in
+           * routes/auth.ts: that gate is header-only by design, because the
+           * Better Auth handler downstream consumes the raw request body, so
+           * it can never read the email address.
+           *
+           * Returning `false` aborts creation — verified in better-auth's
+           * createWithHooks: `if (result === false) return null`. The signup
+           * then fails without a specific reason, which is deliberate: we
+           * don't need to tell a throwaway-domain signup exactly why.
+           */
+          before: async (user) => {
+            const email = (user as { email?: string }).email;
+            if (email && isDisposableEmail(email)) {
+              console.warn(`[Auth] Rejected disposable signup domain: ${email.split("@")[1]}`);
+              return false;
+            }
+            return undefined;
+          },
           after: async (user) => {
             try {
               console.log("[Auth] Creating personal workspace for new user:", user.id);

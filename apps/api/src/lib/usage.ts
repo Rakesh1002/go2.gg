@@ -21,6 +21,8 @@ export interface OrgUsage {
   domains: number;
   teamMembers: number;
   plan: PlanId;
+  /** Subscription status is "trialing" — a card-free trial, so link volume is capped lower. */
+  isTrial: boolean;
 }
 
 export interface UsageCheckResult {
@@ -106,6 +108,7 @@ export async function getOrgUsage(
 
   // Get organization plan (check for both active and trialing subscriptions)
   let plan: PlanId = "free";
+  let isTrial = false;
   if (organizationId) {
     const subQuery = await db
       .select({
@@ -123,6 +126,7 @@ export async function getOrgUsage(
     if (subQuery[0]?.plan) {
       plan = subQuery[0].plan as PlanId;
     }
+    isTrial = subQuery[0]?.status === "trialing";
   }
 
   return {
@@ -131,21 +135,39 @@ export async function getOrgUsage(
     domains: domainsQuery[0]?.count ?? 0,
     teamMembers,
     plan,
+    isTrial,
   };
 }
 
 /**
  * Check if link creation is allowed
  */
+/**
+ * Card-free trials get a lower link ceiling than the plan they are trialling.
+ *
+ * Every signup is granted an automatic 14-day Pro trial (see
+ * ensureUserHasOrganization), which means an anonymous throwaway account
+ * silently inherits Pro's 2,000 links/month. That is a yield cap, not a
+ * detector -- the 2026-08-23 ring ran 3.5 links/day and would never have hit
+ * this. Its job is to bound a future, greedier operator, and to stop handing
+ * out a 20x limit to accounts that have never been verified or billed.
+ */
+export const TRIAL_LINKS_PER_MONTH = 250;
+
 export function checkLinkLimit(usage: OrgUsage): UsageCheckResult {
   const limits = planLimits[usage.plan];
+  const linkLimit = usage.isTrial
+    ? Math.min(limits.linksPerMonth, TRIAL_LINKS_PER_MONTH)
+    : limits.linksPerMonth;
 
   // Check monthly links limit
-  if (usage.linksThisMonth >= limits.linksPerMonth) {
+  if (usage.linksThisMonth >= linkLimit) {
     return {
       allowed: false,
-      reason: `You've reached your monthly limit of ${limits.linksPerMonth} links. Upgrade or wait until next month.`,
-      limit: limits.linksPerMonth,
+      reason: usage.isTrial
+        ? `Trial accounts are limited to ${linkLimit} links per month. Add a payment method to unlock your full plan limit.`
+        : `You've reached your monthly limit of ${linkLimit} links. Upgrade or wait until next month.`,
+      limit: linkLimit,
       current: usage.linksThisMonth,
       upgradeRequired: true,
     };
