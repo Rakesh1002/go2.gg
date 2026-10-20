@@ -25,7 +25,7 @@ export interface PlanCapabilities {
   canUseDeviceTargeting: boolean;
   canUseDeepLinks: boolean;
   canAddFolder: boolean;
-  canUseBioPages: boolean;
+  canUseAdultBioPages: boolean;
   canUsePixelTracking: boolean;
   canCreateWebhooks: boolean;
 
@@ -56,7 +56,7 @@ export function getPlanCapabilities(plan: string | undefined | null): PlanCapabi
     canUseDeviceTargeting: !["free"].includes(p),
     canUseDeepLinks: !["free"].includes(p),
     canAddFolder: !["free"].includes(p),
-    canUseBioPages: !["free"].includes(p),
+    canUseAdultBioPages: !["free"].includes(p),
     canUsePixelTracking: !["free"].includes(p),
     canCreateWebhooks: !["free"].includes(p),
 
@@ -96,7 +96,7 @@ export function checkFeatureAccess(
     "canUseDeviceTargeting",
     "canUseDeepLinks",
     "canAddFolder",
-    "canUseBioPages",
+    "canUseAdultBioPages",
     "canUsePixelTracking",
     "canCreateWebhooks",
   ];

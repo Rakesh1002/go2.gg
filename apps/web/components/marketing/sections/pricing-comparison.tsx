@@ -37,7 +37,7 @@ const features = [
       { name: "QR Codes", free: true, pro: true, business: true },
       { name: "AI-Styled QR Codes", free: false, pro: true, business: true },
       { name: "Custom Slugs", free: true, pro: true, business: true },
-      { name: "Link-in-Bio Pages", free: false, pro: "1", business: "10" },
+      { name: "Link-in-Bio Pages", free: "1", pro: "3", business: "10" },
       { name: "OG Customization", free: false, pro: true, business: true },
     ],
   },

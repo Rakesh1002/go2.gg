@@ -70,7 +70,7 @@ const comparisonFeatures = [
   { feature: "A/B + conversion tracking", free: "—", pro: "—", business: "✓" },
   { feature: "SAML SSO + audit logs", free: "—", pro: "—", business: "✓" },
   { feature: "Team members", free: "1", pro: "3", business: "10" },
-  { feature: "Link-in-bio", free: "—", pro: "1", business: "10" },
+  { feature: "Link-in-bio", free: "1", pro: "3", business: "10" },
 ];
 
 export default function FreePage() {

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import * as Icons from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { openInExternalBrowser } from "@/lib/in-app-browser";
 import { cn } from "@/lib/utils";
 import { getBioTheme, buttonRadiusClass, type BioThemeConfig } from "@/lib/bio/themes";
 
@@ -37,6 +38,7 @@ interface GalleryData {
   socialLinks: Array<{ platform: string; url: string }>;
   customCss: string | null;
   hideBranding?: boolean;
+  isSensitive?: boolean;
   items: GalleryItem[];
 }
 
@@ -94,12 +96,45 @@ function spotifyEmbedPath(url: string): string | null {
   }
 }
 
+const AGE_CONFIRMED_KEY = "go2:age-confirmed";
+
+// React writes <style> contents raw during SSR, so a stored "</style>" would end the element.
+// "<\/" is the same text to CSS but can't close the tag, and range queries like (width < 600px)
+// keep working, which a "\3c" escape would break.
+function escapeStyleText(css: string): string {
+  return css.replaceAll("</", "<\\/");
+}
+
+// Gallery links open in the system browser when tapped inside a social app's webview.
+function openOutbound(e: React.MouseEvent, url: string) {
+  if (openInExternalBrowser(url)) e.preventDefault();
+}
+
 interface BioPageClientProps {
   gallery: GalleryData;
 }
 
 export function BioPageClient({ gallery }: BioPageClientProps) {
   const [clickedItems, setClickedItems] = useState<Set<string>>(new Set());
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
+
+  useEffect(() => {
+    if (!gallery.isSensitive) return;
+    try {
+      setAgeConfirmed(localStorage.getItem(AGE_CONFIRMED_KEY) === "1");
+    } catch {
+      // Storage blocked: ask again on every visit.
+    }
+  }, [gallery.isSensitive]);
+
+  function confirmAge() {
+    setAgeConfirmed(true);
+    try {
+      localStorage.setItem(AGE_CONFIRMED_KEY, "1");
+    } catch {
+      // Storage blocked: the confirmation lasts for this page view only.
+    }
+  }
 
   const theme = getBioTheme(gallery.theme).styles;
   const cfg: BioThemeConfig = gallery.themeConfig ?? {};
@@ -120,6 +155,7 @@ export function BioPageClient({ gallery }: BioPageClientProps) {
     try {
       await fetch(`${API_URL}/api/v1/public/galleries/${gallery.id}/items/${itemId}/click`, {
         method: "POST",
+        keepalive: true,
       });
     } catch (_error) {
       // Silent fail for tracking
@@ -132,12 +168,58 @@ export function BioPageClient({ gallery }: BioPageClientProps) {
     return icon ?? Icons.Link2;
   }
 
+  if (gallery.isSensitive && !ageConfirmed) {
+    return (
+      <div
+        className={cn("flex min-h-screen items-center justify-center px-4", theme.background)}
+        style={overrideStyle}
+      >
+        <div
+          className={cn(
+            "w-full max-w-sm space-y-4 border p-6 text-center",
+            theme.card,
+            theme.border,
+            buttonRadius
+          )}
+        >
+          <h1 className={cn("font-bold text-xl", theme.text)}>18+ content</h1>
+          <p className={cn("text-sm opacity-80", theme.text)}>
+            This page is for adults only. Confirm you are 18 or older to continue.
+          </p>
+          <button
+            type="button"
+            onClick={confirmAge}
+            className={cn(
+              "w-full border p-3 font-medium transition-colors",
+              theme.card,
+              theme.cardHover,
+              theme.border,
+              theme.text,
+              buttonRadius
+            )}
+          >
+            I'm 18 or older
+          </button>
+          <a
+            href="https://www.google.com"
+            rel="noopener noreferrer"
+            className={cn("block text-sm opacity-70 hover:opacity-100", theme.text)}
+          >
+            Leave
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn("min-h-screen px-4 py-8", theme.background)}
       style={overrideStyle}
     >
-      {gallery.customCss && <style dangerouslySetInnerHTML={{ __html: gallery.customCss }} />}
+      {gallery.customCss && (
+        <style dangerouslySetInnerHTML={{ __html: escapeStyleText(gallery.customCss) }} />
+      )}
 
       <div className="mx-auto max-w-md space-y-6">
         {/* Avatar & Bio */}
@@ -175,6 +257,7 @@ export function BioPageClient({ gallery }: BioPageClientProps) {
                   href={social.url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onClick={(e) => openOutbound(e, social.url)}
                   className={cn(
                     "flex h-10 w-10 items-center justify-center rounded-full transition-colors",
                     theme.card,
@@ -239,7 +322,8 @@ export function BioPageClient({ gallery }: BioPageClientProps) {
             if (item.type === "link" && item.url) {
               const IconComponent = getIcon(item.iconName);
               const accentBg = cfg.primaryColor ? { background: cfg.primaryColor } : undefined;
-              const host = safeHost(item.url);
+              const url = item.url;
+              const host = safeHost(url);
               // OG-enriched card: only when the server-side unfurl wrote a
               // thumbnail AND we have title or description. Falls back to the
               // compact card otherwise.
@@ -251,7 +335,10 @@ export function BioPageClient({ gallery }: BioPageClientProps) {
                     href={item.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    onClick={() => trackClick(item.id)}
+                    onClick={(e) => {
+                      trackClick(item.id);
+                      openOutbound(e, url);
+                    }}
                     className={cn(
                       "group block overflow-hidden border transition-all duration-200",
                       theme.card,
@@ -310,7 +397,10 @@ export function BioPageClient({ gallery }: BioPageClientProps) {
                   href={item.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  onClick={() => trackClick(item.id)}
+                  onClick={(e) => {
+                    trackClick(item.id);
+                    openOutbound(e, url);
+                  }}
                   className={cn(
                     "group flex items-center gap-3 border p-4 transition-all duration-200",
                     theme.card,

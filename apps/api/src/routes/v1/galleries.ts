@@ -18,13 +18,30 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { drizzle } from "drizzle-orm/d1";
-import { eq, and, desc, sql, asc } from "drizzle-orm";
+import { eq, and, desc, sql, asc, or } from "drizzle-orm";
 import * as schema from "@repo/db";
+import { type PlanId, planLimits } from "@repo/config/pricing";
 import type { Env } from "../../bindings.js";
 import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
-import { ok, created, noContent, notFound, forbidden, conflict } from "../../lib/response.js";
+import {
+  ok,
+  created,
+  noContent,
+  notFound,
+  forbidden,
+  conflict,
+  paymentRequired,
+} from "../../lib/response.js";
 import { unfurl } from "../../lib/og-unfurl.js";
 import { getPlanForOrg } from "../../lib/retention.js";
+import { getPlanCapabilities } from "../../lib/plan-capabilities.js";
+import {
+  type DomainAccess,
+  domainAccessDenied,
+  getDomainAccess,
+  platformDomain,
+} from "../../lib/domain-access.js";
+import { isAdultUrl } from "../../lib/adult-hosts.js";
 
 const galleries = new Hono<{ Bindings: Env }>();
 
@@ -98,6 +115,7 @@ const createGallerySchema = z.object({
   isPublished: z.boolean().optional(),
   hideBranding: z.boolean().optional(),
   isPrimary: z.boolean().optional(),
+  isSensitive: z.boolean().optional(),
 });
 
 const updateGallerySchema = createGallerySchema.partial();
@@ -145,7 +163,17 @@ protectedRoutes.post("/", zValidator("json", createGallerySchema), async (c) => 
   const input = c.req.valid("json");
   const db = drizzle(c.env.DB, { schema });
 
-  const domain = input.domain ?? c.env.DEFAULT_DOMAIN ?? "go2.gg";
+  const domain = input.domain ?? platformDomain(c.env);
+  const access = await getDomainAccess(db, c.env, user, domain);
+  if (!access) {
+    return forbidden(c, domainAccessDenied(domain));
+  }
+
+  const plan = await getPlanForOrg(db, user.organizationId);
+  const denied = input.isSensitive
+    ? sensitiveDenied(plan, access)
+    : hasAdultSocialLink(input.socialLinks) && ADULT_LINK_NEEDS_18_PLUS;
+  if (denied) return forbidden(c, denied);
 
   // Check if slug is already in use
   const existing = await db
@@ -179,20 +207,28 @@ protectedRoutes.post("/", zValidator("json", createGallerySchema), async (c) => 
     isPublished: input.isPublished ?? false,
     hideBranding: input.hideBranding ?? false,
     isPrimary: input.isPrimary ?? false,
+    isSensitive: input.isSensitive ?? false,
     viewCount: 0,
     createdAt: now,
     updatedAt: now,
   };
 
-  await db.insert(schema.linkGalleries).values(newGallery);
+  const limit = planLimits[plan].bioPages;
+  let result: schema.LinkGallery | undefined;
+  try {
+    result = await insertWithinLimit(db, newGallery, user, limit);
+  } catch (err) {
+    if (isUniqueViolation(err)) return conflict(c, "This slug is already in use");
+    throw err;
+  }
+  if (!result) {
+    return paymentRequired(c, `You've reached your plan's limit of ${limit} bio page(s).`, {
+      limit,
+      upgradeUrl: "/dashboard/billing",
+    });
+  }
 
-  const result = await db
-    .select()
-    .from(schema.linkGalleries)
-    .where(eq(schema.linkGalleries.id, id))
-    .limit(1);
-
-  return created(c, formatGallery(result[0]));
+  return created(c, formatGallery(result));
 });
 
 /**
@@ -302,15 +338,47 @@ protectedRoutes.patch("/:id", zValidator("json", updateGallerySchema), async (c)
     }
   }
 
-  // Check slug uniqueness if changed
-  if (input.slug && input.slug !== existing[0].slug) {
-    const domain = input.domain ?? existing[0].domain;
+  const domain = input.domain || existing[0].domain;
+  const domainChanged = domain !== existing[0].domain;
+  const isSensitive = input.isSensitive ?? existing[0].isSensitive;
+
+  let access: DomainAccess | null = null;
+  if (domainChanged) {
+    access = await getDomainAccess(db, c.env, user, domain);
+    if (!access) return forbidden(c, domainAccessDenied(domain));
+  }
+
+  if (isSensitive && (domainChanged || !existing[0].isSensitive)) {
+    const denied = sensitiveDenied(
+      await getPlanForOrg(db, existing[0].organizationId),
+      access ?? (await getDomainAccess(db, c.env, user, domain))
+    );
+    if (denied) return forbidden(c, denied);
+  }
+
+  if (!isSensitive) {
+    if (hasAdultSocialLink(input.socialLinks)) {
+      return forbidden(c, ADULT_LINK_NEEDS_18_PLUS);
+    }
+    if (existing[0].isSensitive) {
+      const items = await db
+        .select({ url: schema.galleryItems.url })
+        .from(schema.galleryItems)
+        .where(eq(schema.galleryItems.galleryId, galleryId));
+      const socialLinks = input.socialLinks ?? JSON.parse(existing[0].socialLinks ?? "[]");
+      if (hasAdultSocialLink(socialLinks) || items.some((i) => i.url && isAdultUrl(i.url))) {
+        return forbidden(c, "Remove links to adult sites before turning off 18+ mode");
+      }
+    }
+  }
+
+  // A move to another domain can collide too, not only a slug change.
+  const slug = input.slug || existing[0].slug;
+  if (slug !== existing[0].slug || domainChanged) {
     const slugExists = await db
       .select({ id: schema.linkGalleries.id })
       .from(schema.linkGalleries)
-      .where(
-        and(eq(schema.linkGalleries.domain, domain), eq(schema.linkGalleries.slug, input.slug))
-      )
+      .where(and(eq(schema.linkGalleries.domain, domain), eq(schema.linkGalleries.slug, slug)))
       .limit(1);
 
     if (slugExists.length > 0) {
@@ -333,13 +401,19 @@ protectedRoutes.patch("/:id", zValidator("json", updateGallerySchema), async (c)
     ...(input.isPublished !== undefined && { isPublished: input.isPublished }),
     ...(input.hideBranding !== undefined && { hideBranding: input.hideBranding }),
     ...(input.isPrimary !== undefined && { isPrimary: input.isPrimary }),
+    ...(input.isSensitive !== undefined && { isSensitive: input.isSensitive }),
     updatedAt: new Date().toISOString(),
   };
 
-  await db
-    .update(schema.linkGalleries)
-    .set(updateData)
-    .where(eq(schema.linkGalleries.id, galleryId));
+  try {
+    await db
+      .update(schema.linkGalleries)
+      .set(updateData)
+      .where(eq(schema.linkGalleries.id, galleryId));
+  } catch (err) {
+    if (isUniqueViolation(err)) return conflict(c, "This slug is already in use");
+    throw err;
+  }
 
   const result = await db
     .select()
@@ -404,6 +478,10 @@ protectedRoutes.post("/:id/items", zValidator("json", createItemSchema), async (
     return forbidden(c, "You don't have access to this gallery");
   }
 
+  if (adultLinkDenied(gallery[0], input.url)) {
+    return forbidden(c, ADULT_LINK_NEEDS_18_PLUS);
+  }
+
   // Get max position
   const maxPositionResult = await db
     .select({ maxPos: sql<number>`COALESCE(MAX(position), -1)` })
@@ -451,6 +529,59 @@ protectedRoutes.post("/:id/items", zValidator("json", createItemSchema), async (
 });
 
 /**
+ * PATCH /galleries/:id/items/reorder
+ * Reorder gallery items. Registered before /:id/items/:itemId, which would otherwise take
+ * "reorder" as an item id.
+ */
+protectedRoutes.patch("/:id/items/reorder", zValidator("json", reorderItemsSchema), async (c) => {
+  const user = c.get("user");
+  const galleryId = c.req.param("id");
+  const { items } = c.req.valid("json");
+  const db = drizzle(c.env.DB, { schema });
+
+  // Verify gallery ownership
+  const gallery = await db
+    .select()
+    .from(schema.linkGalleries)
+    .where(eq(schema.linkGalleries.id, galleryId))
+    .limit(1);
+
+  if (!gallery[0]) {
+    return notFound(c, "Gallery not found");
+  }
+
+  if (gallery[0].userId !== user.id) {
+    return forbidden(c, "You don't have access to this gallery");
+  }
+
+  // Update positions atomically. drizzle-orm/d1's `db.batch([...])` maps to
+  // D1's batch() API, which runs the statements as a single SQLite
+  // transaction — an interrupted reorder won't leave items half-shuffled.
+  const now = new Date().toISOString();
+  if (items.length > 0) {
+    const stmts = items.map((item) =>
+      db
+        .update(schema.galleryItems)
+        .set({ position: item.position, updatedAt: now })
+        .where(
+          and(eq(schema.galleryItems.id, item.id), eq(schema.galleryItems.galleryId, galleryId))
+        )
+    );
+    // batch() requires a non-empty tuple type; we've guarded length above.
+    await db.batch(stmts as unknown as [(typeof stmts)[number], ...(typeof stmts)[number][]]);
+  }
+
+  // Return updated items
+  const updatedItems = await db
+    .select()
+    .from(schema.galleryItems)
+    .where(eq(schema.galleryItems.galleryId, galleryId))
+    .orderBy(asc(schema.galleryItems.position));
+
+  return ok(c, updatedItems.map(formatGalleryItem));
+});
+
+/**
  * PATCH /galleries/:id/items/:itemId
  * Update gallery item
  */
@@ -474,6 +605,10 @@ protectedRoutes.patch("/:id/items/:itemId", zValidator("json", updateItemSchema)
 
   if (gallery[0].userId !== user.id) {
     return forbidden(c, "You don't have access to this gallery");
+  }
+
+  if (adultLinkDenied(gallery[0], input.url)) {
+    return forbidden(c, ADULT_LINK_NEEDS_18_PLUS);
   }
 
   // Verify item exists and belongs to gallery
@@ -563,58 +698,6 @@ protectedRoutes.delete("/:id/items/:itemId", async (c) => {
 });
 
 /**
- * PATCH /galleries/:id/items/reorder
- * Reorder gallery items
- */
-protectedRoutes.patch("/:id/items/reorder", zValidator("json", reorderItemsSchema), async (c) => {
-  const user = c.get("user");
-  const galleryId = c.req.param("id");
-  const { items } = c.req.valid("json");
-  const db = drizzle(c.env.DB, { schema });
-
-  // Verify gallery ownership
-  const gallery = await db
-    .select()
-    .from(schema.linkGalleries)
-    .where(eq(schema.linkGalleries.id, galleryId))
-    .limit(1);
-
-  if (!gallery[0]) {
-    return notFound(c, "Gallery not found");
-  }
-
-  if (gallery[0].userId !== user.id) {
-    return forbidden(c, "You don't have access to this gallery");
-  }
-
-  // Update positions atomically. drizzle-orm/d1's `db.batch([...])` maps to
-  // D1's batch() API, which runs the statements as a single SQLite
-  // transaction — an interrupted reorder won't leave items half-shuffled.
-  const now = new Date().toISOString();
-  if (items.length > 0) {
-    const stmts = items.map((item) =>
-      db
-        .update(schema.galleryItems)
-        .set({ position: item.position, updatedAt: now })
-        .where(
-          and(eq(schema.galleryItems.id, item.id), eq(schema.galleryItems.galleryId, galleryId))
-        )
-    );
-    // batch() requires a non-empty tuple type; we've guarded length above.
-    await db.batch(stmts as unknown as [(typeof stmts)[number], ...(typeof stmts)[number][]]);
-  }
-
-  // Return updated items
-  const updatedItems = await db
-    .select()
-    .from(schema.galleryItems)
-    .where(eq(schema.galleryItems.galleryId, galleryId))
-    .orderBy(asc(schema.galleryItems.position));
-
-  return ok(c, updatedItems.map(formatGalleryItem));
-});
-
-/**
  * GET /galleries/:id/subscribers
  * List email signups + email-gate captures for a gallery (CSV exportable).
  */
@@ -680,6 +763,72 @@ galleries.route("/", protectedRoutes);
 // Helper Functions
 // -----------------------------------------------------------------------------
 
+// Counts the user's pages in every organization plus the current organization's pages, so
+// creating extra free organizations doesn't mint extra free pages.
+function bioPageScope(user: { id: string; organizationId?: string | null }) {
+  return user.organizationId
+    ? or(
+        eq(schema.linkGalleries.userId, user.id),
+        eq(schema.linkGalleries.organizationId, user.organizationId)
+      )
+    : eq(schema.linkGalleries.userId, user.id);
+}
+
+// A count-then-insert lets concurrent creates all pass the count. D1 runs a batch as one
+// transaction, so inserting and then removing the row if it pushed the scope over the limit is
+// atomic. Undefined means the limit was reached.
+async function insertWithinLimit(
+  db: DrizzleD1,
+  gallery: schema.NewLinkGallery & { id: string },
+  user: { id: string; organizationId?: string | null },
+  limit: number
+): Promise<schema.LinkGallery | undefined> {
+  const pagesInScope = db
+    .select({ count: sql`count(*)` })
+    .from(schema.linkGalleries)
+    .where(bioPageScope(user));
+  await db.batch([
+    db.insert(schema.linkGalleries).values(gallery),
+    db
+      .delete(schema.linkGalleries)
+      .where(and(eq(schema.linkGalleries.id, gallery.id), sql`(${pagesInScope}) > ${limit}`)),
+  ]);
+  const [row] = await db
+    .select()
+    .from(schema.linkGalleries)
+    .where(eq(schema.linkGalleries.id, gallery.id))
+    .limit(1);
+  return row;
+}
+
+function isUniqueViolation(err: unknown) {
+  return (
+    err instanceof Error && /UNIQUE constraint failed/.test(`${err.message} ${err.cause ?? ""}`)
+  );
+}
+
+const ADULT_LINK_NEEDS_18_PLUS =
+  "Links to adult sites need 18+ mode. Turn on 18+ content for this bio page (Pro plan, on your own verified custom domain).";
+
+function adultLinkDenied(gallery: schema.LinkGallery, url: string | undefined) {
+  return !gallery.isSensitive && !!url && isAdultUrl(url);
+}
+
+function hasAdultSocialLink(socialLinks: Array<{ url: string }> | undefined) {
+  return socialLinks?.some((link) => isAdultUrl(link.url)) ?? false;
+}
+
+// Adult traffic stays off the shared platform domain, whose reputation every customer's links depend on.
+function sensitiveDenied(plan: PlanId, access: DomainAccess | null): string | null {
+  if (!getPlanCapabilities(plan).canUseAdultBioPages) {
+    return "18+ bio pages require a Pro plan or higher";
+  }
+  if (access !== "verified") {
+    return "18+ bio pages must be on a verified custom domain you own";
+  }
+  return null;
+}
+
 function formatGallery(gallery: schema.LinkGallery) {
   return {
     id: gallery.id,
@@ -698,6 +847,7 @@ function formatGallery(gallery: schema.LinkGallery) {
     isPublished: gallery.isPublished,
     hideBranding: !!gallery.hideBranding,
     isPrimary: !!gallery.isPrimary,
+    isSensitive: gallery.isSensitive,
     viewCount: gallery.viewCount,
     createdAt: gallery.createdAt,
     updatedAt: gallery.updatedAt,

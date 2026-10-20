@@ -33,7 +33,7 @@ export interface PlanCapabilities {
 
   // Organization features (Pro+)
   canAddFolder: boolean;
-  canUseBioPages: boolean;
+  canUseAdultBioPages: boolean;
   canUsePixelTracking: boolean;
   canCreateWebhooks: boolean;
 
@@ -80,7 +80,7 @@ export function getPlanCapabilities(plan: PlanId | string | undefined | null): P
     canUseDeviceTargeting: !["free"].includes(p),
     canUseDeepLinks: !["free"].includes(p),
     canAddFolder: !["free"].includes(p),
-    canUseBioPages: !["free"].includes(p),
+    canUseAdultBioPages: !["free"].includes(p),
     canUsePixelTracking: !["free"].includes(p),
     canCreateWebhooks: !["free"].includes(p),
     canUseBioEmailSignup: !["free"].includes(p),
@@ -166,7 +166,7 @@ export function getUpgradeMessage(capability: keyof PlanCapabilities): string {
     canUseDeviceTargeting: "Upgrade to Pro to redirect users based on device type",
     canUseDeepLinks: "Upgrade to Pro to use mobile app deep links",
     canAddFolder: "Upgrade to Pro to organize links in folders",
-    canUseBioPages: "Upgrade to Pro to create link-in-bio pages",
+    canUseAdultBioPages: "Upgrade to Pro to publish 18+ bio pages on your own domain",
     canUsePixelTracking: "Upgrade to Pro to add retargeting pixels",
     canCreateWebhooks: "Upgrade to Pro to receive webhook notifications",
     canUseABTesting: "Upgrade to Business to run A/B tests on your links",

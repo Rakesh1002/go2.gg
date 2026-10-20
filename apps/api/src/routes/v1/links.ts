@@ -19,6 +19,7 @@ import { z } from "zod";
 import type { Env } from "../../bindings.js";
 import { generateSingleAISlug } from "../../lib/ai-slug.js";
 import { serializeCachedLink, syncLinkToKV } from "../../lib/cached-link.js";
+import { domainAccessDenied, getDomainAccess, platformDomain } from "../../lib/domain-access.js";
 import { checkFolderAccess, refreshFolderLinkCounts } from "../../lib/folders.js";
 import { hashPassword } from "../../lib/password.js";
 import { captureEvent } from "../../lib/product-analytics.js";
@@ -46,6 +47,26 @@ import { dispatchWebhookEvent } from "../../lib/webhook-dispatcher.js";
 import { apiKeyAuthMiddleware } from "../../middleware/auth.js";
 
 const links = new Hono<{ Bindings: Env }>();
+
+const slugHolderColumns = {
+  id: schema.links.id,
+  isArchived: schema.links.isArchived,
+  userId: schema.links.userId,
+  organizationId: schema.links.organizationId,
+};
+
+// Reclaiming hard-deletes the holder, so only the caller's own archived links qualify; on the
+// shared platform domain the holder is usually another tenant.
+function canReclaimSlug(
+  holder: { isArchived: boolean | null; userId: string | null; organizationId: string | null },
+  user: { id: string; organizationId?: string | null }
+): boolean {
+  return (
+    !!holder.isArchived &&
+    (holder.userId === user.id ||
+      (!!holder.organizationId && holder.organizationId === user.organizationId))
+  );
+}
 
 // All routes require authentication (supports both API keys and session auth)
 links.use("/*", apiKeyAuthMiddleware());
@@ -202,8 +223,10 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
     }
   }
 
-  // Determine domain
-  const domain = input.domain ?? c.env.DEFAULT_DOMAIN ?? "go2.gg";
+  const domain = input.domain ?? platformDomain(c.env);
+  if (!(await getDomainAccess(db, c.env, user, domain))) {
+    return forbidden(c, domainAccessDenied(domain));
+  }
 
   // Generate or validate slug
   let slug: string;
@@ -253,13 +276,13 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
 
   // Check if slug already exists for this domain
   const existing = await db
-    .select({ id: schema.links.id, isArchived: schema.links.isArchived })
+    .select(slugHolderColumns)
     .from(schema.links)
     .where(and(eq(schema.links.domain, domain), eq(schema.links.slug, slug)))
     .limit(1);
 
   if (existing.length > 0) {
-    if (existing[0].isArchived) {
+    if (canReclaimSlug(existing[0], user)) {
       // If the existing link is archived, hard-delete it to free up the slug
       await db.delete(schema.links).where(eq(schema.links.id, existing[0].id));
     } else {
@@ -657,6 +680,16 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
     }
   }
 
+  // Before the slug check below, which hard-deletes an archived link holding the slug on the
+  // target domain.
+  if (
+    input.domain &&
+    input.domain !== existing[0].domain &&
+    !(await getDomainAccess(db, c.env, user, input.domain))
+  ) {
+    return forbidden(c, domainAccessDenied(input.domain));
+  }
+
   // Check slug uniqueness if changed
   if (input.slug && input.slug !== existing[0].slug) {
     if (isReservedSlug(input.slug)) {
@@ -674,13 +707,13 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
 
     const domain = input.domain ?? existing[0].domain;
     const slugExists = await db
-      .select({ id: schema.links.id, isArchived: schema.links.isArchived })
+      .select(slugHolderColumns)
       .from(schema.links)
       .where(and(eq(schema.links.domain, domain), eq(schema.links.slug, input.slug)))
       .limit(1);
 
     if (slugExists.length > 0) {
-      if (slugExists[0].isArchived) {
+      if (canReclaimSlug(slugExists[0], user)) {
         // If the existing link is archived, hard-delete it to free up the slug
         await db.delete(schema.links).where(eq(schema.links.id, slugExists[0].id));
       } else {

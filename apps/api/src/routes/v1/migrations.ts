@@ -24,6 +24,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 import type { Env } from "../../bindings.js";
 import { serializeCachedLink, syncLinkToKV } from "../../lib/cached-link.js";
+import { domainAccessDenied, getDomainAccess, platformDomain } from "../../lib/domain-access.js";
 import {
   type MigrationCredentials,
   type MigrationProvider,
@@ -32,6 +33,7 @@ import {
   listProviders,
   validateCredentials,
 } from "../../lib/migrations/index.js";
+import { forbidden } from "../../lib/response.js";
 import {
   UNKNOWN_VERDICT,
   checkDestinationThreatBatch,
@@ -194,7 +196,10 @@ migrations.post("/start", async (c) => {
 
   const db = drizzle(c.env.DB, { schema });
   const migrationId = nanoid();
-  const defaultDomain = parsed.data.options?.defaultDomain ?? c.env.DEFAULT_DOMAIN ?? "go2.gg";
+  const defaultDomain = parsed.data.options?.defaultDomain ?? platformDomain(c.env);
+  if (!(await getDomainAccess(db, c.env, user, defaultDomain))) {
+    return forbidden(c, domainAccessDenied(defaultDomain));
+  }
 
   // Create migration record
   await db.insert(schema.migrations).values({

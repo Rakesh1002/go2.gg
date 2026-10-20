@@ -47,7 +47,7 @@ export const featureInfo: Record<Feature, FeatureInfo> = {
   bioPages: {
     name: "Link in Bio",
     description: "Create beautiful bio pages to share with your audience",
-    requiredPlan: "pro",
+    requiredPlan: "free", // Available on all plans, different limits
     benefits: [
       "Customizable bio page design",
       "Add unlimited links to your page",

@@ -11,6 +11,7 @@
     "deploy:staging": "wrangler deploy --env staging",
     "preview": "wrangler dev --env production",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run && node --test test/*.test.ts",
     "lint": "biome lint ./src",
     "lint:fix": "biome lint --fix ./src",
     "format": "biome format --write ./src",
@@ -43,6 +44,7 @@
     "@cloudflare/workers-types": "^4.20241218.0",
     "@types/qrcode": "^1.5.5",
     "typescript": "^5",
+    "vitest": "^3.2.4",
     "wrangler": "^4.60.0"
   }
 }

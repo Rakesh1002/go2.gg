@@ -24,6 +24,7 @@ import {
   parseCSV,
   processImport,
 } from "../../lib/csv.js";
+import { domainAccessDenied, getDomainAccess, platformDomain } from "../../lib/domain-access.js";
 import { checkFolderAccess, refreshFolderLinkCounts } from "../../lib/folders.js";
 import {
   badRequest,
@@ -184,16 +185,25 @@ bulk.post("/import", zValidator("query", importQuerySchema), async (c) => {
   ).catch(() => undefined);
 
   // Create links
-  const defaultDomain = c.env.DEFAULT_DOMAIN ?? "go2.gg";
+  const defaultDomain = platformDomain(c.env);
   const now = new Date().toISOString();
   const createdLinks: Array<{ id: string; shortUrl: string; destinationUrl: string }> = [];
   const creationErrors: Array<{ row: number; reason: string }> = [];
   const blocked: Array<{ row: number; destinationUrl: string; reason: string }> = [];
   const warnings: Array<{ row: number; reason: string }> = [];
+  const writableDomains = new Map<string, boolean>();
 
   for (let i = 0; i < importResult.links.length; i++) {
     const link = importResult.links[i];
     const domain = link.domain || defaultDomain;
+
+    if (!writableDomains.has(domain)) {
+      writableDomains.set(domain, !!(await getDomainAccess(db, c.env, user, domain)));
+    }
+    if (!writableDomains.get(domain)) {
+      creationErrors.push({ row: i + 2, reason: domainAccessDenied(domain) });
+      continue;
+    }
 
     const verdict = verdicts.get(link.destinationUrl) ?? UNKNOWN_VERDICT;
     if (shouldBlockOnCreate(verdict)) {

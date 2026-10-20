@@ -8,6 +8,15 @@
  */
 
 import type { TrackingPixel } from "../bindings.js";
+import { escapeHtml } from "./safety-pages.js";
+
+/** pixelId and events are user input; as a JSON literal with "<" escaped they can't end the string or the <script>. */
+function js(value: string): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
 
 /**
  * Generate the script for a specific pixel type
@@ -28,41 +37,41 @@ n.queue=[];t=b.createElement(e);t.async=!0;
 t.src=v;s=b.getElementsByTagName(e)[0];
 s.parentNode.insertBefore(t,s)}(window, document,'script',
 'https://connect.facebook.net/en_US/fbevents.js');
-fbq('init', '${pixel.pixelId}');
-${(pixel.events || ["PageView"]).map((e) => `fbq('track', '${e}');`).join("\n")}
+fbq('init', ${js(pixel.pixelId)});
+${(pixel.events || ["PageView"]).map((e) => `fbq('track', ${js(e)});`).join("\n")}
 </script>
 <noscript><img height="1" width="1" style="display:none"
-src="https://www.facebook.com/tr?id=${pixel.pixelId}&ev=PageView&noscript=1"/></noscript>`;
+src="https://www.facebook.com/tr?id=${encodeURIComponent(pixel.pixelId)}&ev=PageView&noscript=1"/></noscript>`;
 
     case "google":
       return `
 <!-- Google Ads Conversion Tracking -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=${pixel.pixelId}"></script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(pixel.pixelId)}"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
 function gtag(){dataLayer.push(arguments);}
 gtag('js', new Date());
-gtag('config', '${pixel.pixelId}');
-${(pixel.events || []).map((e) => `gtag('event', '${e}');`).join("\n")}
+gtag('config', ${js(pixel.pixelId)});
+${(pixel.events || []).map((e) => `gtag('event', ${js(e)});`).join("\n")}
 </script>`;
 
     case "ga4":
       return `
 <!-- Google Analytics 4 -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=${pixel.pixelId}"></script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(pixel.pixelId)}"></script>
 <script>
 window.dataLayer = window.dataLayer || [];
 function gtag(){dataLayer.push(arguments);}
 gtag('js', new Date());
-gtag('config', '${pixel.pixelId}');
-${(pixel.events || []).map((e) => `gtag('event', '${e}');`).join("\n")}
+gtag('config', ${js(pixel.pixelId)});
+${(pixel.events || []).map((e) => `gtag('event', ${js(e)});`).join("\n")}
 </script>`;
 
     case "linkedin":
       return `
 <!-- LinkedIn Insight Tag -->
 <script type="text/javascript">
-_linkedin_partner_id = "${pixel.pixelId}";
+_linkedin_partner_id = ${js(pixel.pixelId)};
 window._linkedin_data_partner_ids = window._linkedin_data_partner_ids || [];
 window._linkedin_data_partner_ids.push(_linkedin_partner_id);
 </script>
@@ -77,7 +86,7 @@ b.src = "https://snap.licdn.com/li.lms-analytics/insight.min.js";
 s.parentNode.insertBefore(b, s);})(window.lintrk);
 </script>
 <noscript><img height="1" width="1" style="display:none;" alt=""
-src="https://px.ads.linkedin.com/collect/?pid=${pixel.pixelId}&fmt=gif" /></noscript>`;
+src="https://px.ads.linkedin.com/collect/?pid=${encodeURIComponent(pixel.pixelId)}&fmt=gif" /></noscript>`;
 
     case "tiktok":
       return `
@@ -85,9 +94,9 @@ src="https://px.ads.linkedin.com/collect/?pid=${pixel.pixelId}&fmt=gif" /></nosc
 <script>
 !function (w, d, t) {
 w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"],ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e},ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=i,ttq._t=ttq._t||{},ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};var o=document.createElement("script");o.type="text/javascript",o.async=!0,o.src=i+"?sdkid="+e+"&lib="+t;var a=document.getElementsByTagName("script")[0];a.parentNode.insertBefore(o,a)};
-ttq.load('${pixel.pixelId}');
+ttq.load(${js(pixel.pixelId)});
 ttq.page();
-${(pixel.events || []).map((e) => `ttq.track('${e}');`).join("\n")}
+${(pixel.events || []).map((e) => `ttq.track(${js(e)});`).join("\n")}
 }(window, document, 'ttq');
 </script>`;
 
@@ -98,8 +107,8 @@ ${(pixel.events || []).map((e) => `ttq.track('${e}');`).join("\n")}
 !function(e,t,n,s,u,a){e.twq||(s=e.twq=function(){s.exe?s.exe.apply(s,arguments):s.queue.push(arguments);
 },s.version='1.1',s.queue=[],u=t.createElement(n),u.async=!0,u.src='https://static.ads-twitter.com/uwt.js',
 a=t.getElementsByTagName(n)[0],a.parentNode.insertBefore(u,a))}(window,document,'script');
-twq('config','${pixel.pixelId}');
-${(pixel.events || []).map((e) => `twq('event', '${e}');`).join("\n")}
+twq('config',${js(pixel.pixelId)});
+${(pixel.events || []).map((e) => `twq('event', ${js(e)});`).join("\n")}
 </script>`;
 
     case "pinterest":
@@ -112,12 +121,12 @@ n=window.pintrk;n.queue=[],n.version="3.0";var
 t=document.createElement("script");t.async=!0,t.src=e;var
 r=document.getElementsByTagName("script")[0];
 r.parentNode.insertBefore(t,r)}}("https://s.pinimg.com/ct/core.js");
-pintrk('load', '${pixel.pixelId}');
+pintrk('load', ${js(pixel.pixelId)});
 pintrk('page');
-${(pixel.events || []).map((e) => `pintrk('track', '${e}');`).join("\n")}
+${(pixel.events || []).map((e) => `pintrk('track', ${js(e)});`).join("\n")}
 </script>
 <noscript><img height="1" width="1" style="display:none;" alt=""
-src="https://ct.pinterest.com/v3/?tid=${pixel.pixelId}&noscript=1" /></noscript>`;
+src="https://ct.pinterest.com/v3/?tid=${encodeURIComponent(pixel.pixelId)}&noscript=1" /></noscript>`;
 
     case "custom":
       // Custom JS is intentional power-user surface, but we still need to
@@ -156,10 +165,10 @@ function generateConsentBanner(destinationUrl: string): string {
 document.getElementById('accept-btn').onclick = function() {
   document.getElementById('consent-banner').style.display = 'none';
   loadPixels();
-  setTimeout(function() { window.location.href = '${destinationUrl}'; }, 100);
+  setTimeout(function() { window.location.href = ${js(destinationUrl)}; }, 100);
 };
 document.getElementById('decline-btn').onclick = function() {
-  window.location.href = '${destinationUrl}';
+  window.location.href = ${js(destinationUrl)};
 };
 </script>`;
 }
@@ -181,9 +190,18 @@ export function generatePixelTrackingPage(
 
   const { requireConsent = false, linkTitle = "Redirecting...", brandColor = "#6366f1" } = options;
 
-  // If consent required, wrap pixels in a function that loads on accept
+  // Consent mode parks the tag snippets in an inert <template>; on accept, each <script> is
+  // re-created so the browser runs it (cloned or innerHTML'd scripts never execute).
   const pixelSection = requireConsent
-    ? `<script>function loadPixels() { ${pixelScripts.replace(/<\/?script>/g, "")} }</script>`
+    ? `<template id="go2-pixels">${pixelScripts}</template>
+<script>function loadPixels() {
+  document.getElementById("go2-pixels").content.querySelectorAll("script").forEach(function(tag) {
+    var s = document.createElement("script");
+    for (var i = 0; i < tag.attributes.length; i++) s.setAttribute(tag.attributes[i].name, tag.attributes[i].value);
+    s.text = tag.text;
+    document.head.appendChild(s);
+  });
+}</script>`
     : pixelScripts;
 
   const consentBanner = requireConsent ? generateConsentBanner(destinationUrl) : "";
@@ -191,15 +209,15 @@ export function generatePixelTrackingPage(
   // Auto-redirect timing: 50ms for pixels to fire, then redirect
   const redirectScript = requireConsent
     ? ""
-    : `<script>setTimeout(function() { window.location.href = '${destinationUrl}'; }, 50);</script>`;
+    : `<script>setTimeout(function() { window.location.href = ${js(destinationUrl)}; }, 50);</script>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="refresh" content="${requireConsent ? "30" : "1"};url=${destinationUrl}">
-  <title>${linkTitle}</title>
+  <meta http-equiv="refresh" content="${requireConsent ? "30" : "1"};url=${escapeHtml(destinationUrl)}">
+  <title>${escapeHtml(linkTitle)}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -258,8 +276,8 @@ export function generatePixelTrackingPage(
 <body>
   <div class="container">
     <div class="spinner"></div>
-    <h1>${linkTitle}</h1>
-    <p>You'll be redirected in a moment. <a href="${destinationUrl}">Click here</a> if not redirected.</p>
+    <h1>${escapeHtml(linkTitle)}</h1>
+    <p>You'll be redirected in a moment. <a href="${escapeHtml(destinationUrl)}">Click here</a> if not redirected.</p>
   </div>
   ${consentBanner}
   <div class="powered-by">Powered by <a href="https://go2.gg" target="_blank">Go2</a></div>

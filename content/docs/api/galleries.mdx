@@ -7,6 +7,8 @@ section: API
 
 The Galleries API lets you create and manage Link-in-Bio pages programmatically.
 
+Bio pages per plan: Free: 1, Pro: 3, Business: 10. Creating more returns `402`.
+
 ## Endpoints
 
 | Method | Endpoint | Description |
@@ -41,12 +43,13 @@ curl -X POST https://api.go2.gg/api/v1/galleries \
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `slug` | string | Yes | URL slug (e.g., "myprofile" for go2.gg/bio/myprofile) |
-| `domain` | string | No | Custom domain (default: go2.gg) |
+| `domain` | string | No | go2.gg (default) or a custom domain you've added; other domains return `403` |
 | `title` | string | No | Display name |
 | `bio` | string | No | Short biography (max 500 chars) |
 | `avatarUrl` | string | No | Profile picture URL |
 | `theme` | string | No | Theme name: default, minimal, gradient, dark, neon |
 | `socialLinks` | array | No | Array of social profile links |
+| `isSensitive` | boolean | No | 18+ mode: visitors confirm their age before seeing links. Needs Pro or higher and a verified custom domain you own. Links to adult sites require it |
 
 ### Response
 

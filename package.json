@@ -17,6 +17,7 @@
     "format": "biome format --write .",
     "format:check": "biome format .",
     "check": "biome check --fix .",
+    "test": "pnpm --filter @repo/db --filter @repo/config build && pnpm --filter @repo/api test && pnpm --filter @repo/web test:run",
     "typecheck": "turbo typecheck --filter=!@repo/ai --filter=!@repo/extension --filter=!shipquest",
     "clean": "turbo clean && rm -rf node_modules",
     "clean:all": "turbo clean && rm -rf node_modules apps/web/.next apps/web/.open-next apps/api/dist",

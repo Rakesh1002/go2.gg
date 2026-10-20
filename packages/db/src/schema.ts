@@ -1285,6 +1285,7 @@ export const linkGalleries = sqliteTable(
     // the one served at "/" when a custom domain is bound. NULL/0 means the
     // gallery is only reachable at /bio/<slug>.
     isPrimary: integer("is_primary", { mode: "boolean" }).notNull().default(false),
+    isSensitive: integer("is_sensitive", { mode: "boolean" }).notNull().default(false),
     viewCount: integer("view_count").notNull().default(0),
     createdAt: text("created_at")
       .notNull()

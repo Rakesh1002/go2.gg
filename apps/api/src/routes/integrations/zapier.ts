@@ -20,7 +20,8 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import type { Env } from "../../bindings.js";
-import { ok, unauthorized, badRequest } from "../../lib/response.js";
+import { ok, unauthorized, badRequest, forbidden } from "../../lib/response.js";
+import { domainAccessDenied, getDomainAccess, platformDomain } from "../../lib/domain-access.js";
 import { createD1Repositories } from "@repo/db/d1";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "@repo/db";
@@ -234,7 +235,11 @@ zapier.post("/actions/create_link", zValidator("json", createLinkSchema), async 
 
   // Generate slug if not provided
   const slug = input.slug || generateSlug();
-  const domain = input.domain || c.env.DEFAULT_DOMAIN || "go2.gg";
+  const domain = input.domain || platformDomain(c.env);
+  const owner = { id: userId, organizationId };
+  if (!(await getDomainAccess(drizzle(c.env.DB, { schema }), c.env, owner, domain))) {
+    return forbidden(c, domainAccessDenied(domain));
+  }
 
   // Check if slug is available
   const existing = await repos.links.findByDomainAndSlug(domain, slug);

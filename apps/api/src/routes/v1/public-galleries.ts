@@ -81,6 +81,7 @@ publicGalleries.get("/:domain/:slug", async (c) => {
     seoDescription: g.seoDescription,
     viewCount: g.viewCount,
     hideBranding: !!g.hideBranding,
+    isSensitive: g.isSensitive,
     items: items.map((item) => {
       const parsedEmbed = item.embedData ? JSON.parse(item.embedData) : null;
       const gate = parsedEmbed?.gate as

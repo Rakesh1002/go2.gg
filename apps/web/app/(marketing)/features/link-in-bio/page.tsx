@@ -174,7 +174,7 @@ export default function LinkInBioPage() {
                 <h3 className="mb-4 font-semibold text-[var(--marketing-text)]">Go2 Bio</h3>
                 <ul className="space-y-3">
                   {[
-                    "Free forever plan",
+                    "Free: 1 page, Pro: 3, Business: 10",
                     "Custom domains included",
                     "Detailed analytics",
                     "No Go2 branding on paid plans",

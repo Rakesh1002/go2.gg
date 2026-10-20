@@ -24,6 +24,7 @@ interface GalleryData {
   seoDescription: string | null;
   viewCount: number;
   hideBranding?: boolean;
+  isSensitive?: boolean;
   items: Array<{
     id: string;
     type: "link" | "header" | "divider" | "embed" | "image" | "email_signup";
@@ -114,6 +115,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       description,
       images: gallery.avatarUrl ? [gallery.avatarUrl] : undefined,
     },
+    ...(gallery.isSensitive && {
+      robots: { index: false, follow: false },
+      other: { rating: "adult" },
+    }),
   };
 }
 

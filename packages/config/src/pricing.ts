@@ -219,7 +219,8 @@ export const comparisonTable: ComparisonCategory[] = [
       { name: "QR codes", free: true, pro: true, business: true },
       { name: "Branded QR codes", free: false, pro: true, business: true },
       { name: "Custom OG previews", free: false, pro: true, business: true },
-      { name: "Link-in-bio pages", free: false, pro: "1", business: "10" },
+      { name: "Link-in-bio pages", free: "1", pro: "3", business: "10" },
+      { name: "18+ bio pages (own domain)", free: false, pro: true, business: true },
     ],
   },
   {
@@ -294,7 +295,7 @@ export const planLimits = {
     analyticsRetentionDays: 30,
     apiRateLimit: 100,
     teamMembers: 1,
-    bioPages: 0,
+    bioPages: 1,
     tags: 5,
     folders: 0,
     // Free links auto-expire after this many days from createdAt.
@@ -308,7 +309,7 @@ export const planLimits = {
     analyticsRetentionDays: 365,
     apiRateLimit: 1000,
     teamMembers: 3,
-    bioPages: 1,
+    bioPages: 3,
     tags: 25,
     folders: 5,
     linkRetentionDays: null as number | null,

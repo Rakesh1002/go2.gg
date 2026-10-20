@@ -30,6 +30,9 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
+import { useSubscription } from "@/contexts/subscription-context";
+import { useDomains } from "@/hooks/use-queries";
+import { getPlanCapabilities, getUpgradeMessage } from "@/lib/plan-capabilities";
 import {
   Plus,
   Trash2,
@@ -60,6 +63,7 @@ interface Gallery {
   isPublished: boolean;
   hideBranding?: boolean;
   isPrimary?: boolean;
+  isSensitive: boolean;
   viewCount: number;
   createdAt: string;
   items?: GalleryItem[];
@@ -117,6 +121,12 @@ type CreateGalleryFormData = z.infer<typeof createGallerySchema>;
 type CreateItemFormData = z.infer<typeof createItemSchema>;
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
+// Same derivation the public bio page uses to look galleries up, so staging and self-hosted
+// installs offer their own host rather than go2.gg.
+const PLATFORM_DOMAIN = new URL(process.env.NEXT_PUBLIC_APP_URL || "https://go2.gg").host;
+// Off until custom-domain requests are routed to bio pages: today a page moved off the
+// platform domain 404s, and 18+ mode requires a custom domain.
+const CUSTOM_BIO_DOMAINS_ENABLED = false;
 
 export function BioClient() {
   const [galleries, setGalleries] = useState<Gallery[]>([]);
@@ -127,6 +137,11 @@ export function BioClient() {
   const [addItemDialogOpen, setAddItemDialogOpen] = useState(false);
   const [selectedItemType, setSelectedItemType] =
     useState<(typeof ITEM_TYPES)[number]["id"]>("link");
+  const { subscription } = useSubscription();
+  const { data: domains = [] } = useDomains();
+  const verifiedDomains = domains
+    .filter((d) => d.verificationStatus === "verified")
+    .map((d) => d.domain);
 
   const {
     register,
@@ -259,6 +274,26 @@ export function BioClient() {
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Failed to update gallery");
+    }
+  }
+
+  async function updateGallery(id: string, patch: Partial<Pick<Gallery, "domain" | "isSensitive">>) {
+    try {
+      const response = await fetch(`${API_URL}/api/v1/galleries/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+        credentials: "include",
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error?.message ?? "Failed to update bio page");
+      }
+      setGalleries((prev) => prev.map((g) => (g.id === id ? { ...g, ...result.data } : g)));
+      setSelectedGallery((prev) => (prev?.id === id ? { ...prev, ...result.data } : prev));
+      toast.success("Bio page updated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update bio page");
     }
   }
 
@@ -444,6 +479,14 @@ export function BioClient() {
     navigator.clipboard.writeText(url);
     toast.success("Copied to clipboard");
   }
+
+  const adultModeBlockedReason = !CUSTOM_BIO_DOMAINS_ENABLED
+    ? "Custom domains and 18+ mode are in setup — coming soon."
+    : !getPlanCapabilities(subscription.plan).canUseAdultBioPages
+    ? getUpgradeMessage("canUseAdultBioPages")
+    : !verifiedDomains.includes(selectedGallery?.domain ?? "")
+      ? "Move this page to a verified custom domain you own to turn on 18+ mode."
+      : null;
 
   if (loading) {
     return (
@@ -689,6 +732,56 @@ export function BioClient() {
                       checked={!!selectedGallery.hideBranding}
                       onCheckedChange={(checked) =>
                         toggleHideBranding(selectedGallery.id, checked)
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <Label>Domain</Label>
+                      <p className="text-muted-foreground text-sm">
+                        Where this bio page is published.
+                      </p>
+                    </div>
+                    <Select
+                      disabled={!CUSTOM_BIO_DOMAINS_ENABLED}
+                      value={selectedGallery.domain}
+                      onValueChange={(domain) => updateGallery(selectedGallery.id, { domain })}
+                    >
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[
+                          ...new Set([PLATFORM_DOMAIN, selectedGallery.domain, ...verifiedDomains]),
+                        ].map((domain) => (
+                          <SelectItem key={domain} value={domain}>
+                            {domain}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <Label>18+ content</Label>
+                      <p className="text-muted-foreground text-sm">
+                        Visitors confirm they are 18 or older before seeing your links. Required for
+                        links to adult sites.
+                      </p>
+                      {adultModeBlockedReason && (
+                        <p className="mt-1 text-amber-600 text-sm dark:text-amber-500">
+                          {adultModeBlockedReason}
+                        </p>
+                      )}
+                    </div>
+                    <Switch
+                      checked={selectedGallery.isSensitive}
+                      disabled={
+                        !CUSTOM_BIO_DOMAINS_ENABLED ||
+                        (!selectedGallery.isSensitive && adultModeBlockedReason !== null)
+                      }
+                      onCheckedChange={(checked) =>
+                        updateGallery(selectedGallery.id, { isSensitive: checked })
                       }
                     />
                   </div>
