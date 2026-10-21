@@ -151,17 +151,21 @@ describe("pixel tracking origin (separate-origin isolation)", () => {
     expect(await res.text()).not.toContain("connect.facebook.net");
   });
 
-  it("pixel serving is OFF when PIXEL_ORIGIN is unset — a normal redirect, still tracked", async () => {
+  it("pixel serving is OFF when PIXEL_ORIGIN is unset — no handoff, still tracked", async () => {
     const { ctx: cctx, calls } = countingCtx();
     const res = await worker.fetch(
       new Request("https://go2.gg/cloaky", { headers: { host: "go2.gg" } }),
       makeEnv(pixelLink) as never, // no PIXEL_ORIGIN
       cctx
     );
-    expect(res.status).toBe(302);
-    const loc = res.headers.get("location") ?? "";
-    expect(loc).toContain("example.com");
-    expect(loc).not.toContain(PIXEL_HOST);
+    const body = await res.text();
+    // The link is handled by the normal path: no hand-off to the tracking origin
+    // and no owner pixel JS served on go2.gg. We don't assert the status — a real
+    // browser gets a 302 to the destination while a crawler/no-nav request gets
+    // the OG page, same as the http-cloak fall-through test above.
+    expect(res.headers.get("location") ?? "").not.toContain(PIXEL_HOST);
+    expect(body).not.toContain(PIXEL_HOST);
+    expect(body).not.toContain("connect.facebook.net");
     expect(calls()).toBeGreaterThanOrEqual(1);
   });
 
