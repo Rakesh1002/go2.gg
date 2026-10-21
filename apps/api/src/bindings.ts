@@ -147,6 +147,11 @@ export interface Env {
   /** Cloudflare API token with `URL Scanner:Read` scope. */
   CLOUDFLARE_URLSCANNER_TOKEN?: string;
 
+  /** go2.gg zone id for Cloudflare for SaaS custom hostname provisioning. */
+  CLOUDFLARE_ZONE_ID?: string;
+  /** Cloudflare API token with `SSL and Certificates:Edit` scope on the zone. */
+  CLOUDFLARE_SAAS_TOKEN?: string;
+
   /** Turnstile secret key for bot protection */
   TURNSTILE_SECRET_KEY?: string;
 

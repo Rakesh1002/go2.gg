@@ -116,6 +116,9 @@ export interface Domain {
   domain: string;
   verificationStatus: "pending" | "verified" | "failed";
   verifiedAt?: string;
+  /** Cloudflare for SaaS certificate status: null | pending_validation | active | ... */
+  sslStatus?: string | null;
+  bioGalleryId?: string | null;
   dnsRecords: {
     verification: { type: string; name: string; value: string };
     cname: { type: string; name: string; value: string };

@@ -166,6 +166,8 @@ DEFAULT_DOMAIN = "go2.gg"
 EMAIL_FROM_TRANSACTIONAL = "Go2 <noreply@go2.gg>"
 EMAIL_FROM_MARKETING = "Rakesh <rakesh@go2.gg>"
 AXIOM_DATASET = "go2"
+# go2.gg zone id for Cloudflare for SaaS custom hostname provisioning (not a secret).
+CLOUDFLARE_ZONE_ID = "19ecf59fca24bbf01ce91d1039f772a7"
 
 # Custom domain for API
 [[env.production.routes]]

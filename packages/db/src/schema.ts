@@ -815,6 +815,9 @@ export const domains = sqliteTable(
     verifiedAt: text("verified_at"),
     // SSL/TLS
     sslStatus: text("ssl_status"),
+    // Cloudflare for SaaS custom hostname id (set once provisioned); used to
+    // poll SSL status and to delete the hostname when the domain is removed.
+    customHostnameId: text("custom_hostname_id"),
     // Default settings for links on this domain
     defaultRedirectUrl: text("default_redirect_url"),
     notFoundUrl: text("not_found_url"),

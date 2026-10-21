@@ -42,6 +42,7 @@ import {
   platformDomain,
 } from "../../lib/domain-access.js";
 import { isAdultUrl } from "../../lib/adult-hosts.js";
+import { recomputeBioHost } from "../../lib/bio-host.js";
 
 const galleries = new Hono<{ Bindings: Env }>();
 
@@ -226,6 +227,11 @@ protectedRoutes.post("/", zValidator("json", createGallerySchema), async (c) => 
       limit,
       upgradeUrl: "/dashboard/billing",
     });
+  }
+
+  // Moving a gallery onto a custom domain is what binds it to the domain root.
+  if (result.domain !== platformDomain(c.env)) {
+    await recomputeBioHost(db, c.env, result.domain);
   }
 
   return created(c, formatGallery(result));
@@ -421,6 +427,14 @@ protectedRoutes.patch("/:id", zValidator("json", updateGallerySchema), async (c)
     .where(eq(schema.linkGalleries.id, galleryId))
     .limit(1);
 
+  // Keep the custom-domain bio mapping in lockstep with the gallery's domain,
+  // slug, published and primary state — for the domain it left and the one it's
+  // on now. Recompute picks the owner's primary published gallery, or clears.
+  const platform = platformDomain(c.env);
+  for (const d of new Set([existing[0].domain, result[0].domain])) {
+    if (d !== platform) await recomputeBioHost(db, c.env, d);
+  }
+
   return ok(c, formatGallery(result[0]));
 });
 
@@ -449,6 +463,12 @@ protectedRoutes.delete("/:id", async (c) => {
 
   // Delete gallery (items will be cascade deleted due to FK)
   await db.delete(schema.linkGalleries).where(eq(schema.linkGalleries.id, galleryId));
+
+  // Promote the next eligible gallery to the domain root (or clear it) now that
+  // this one is gone — recompute runs after the delete so it isn't reselected.
+  if (existing[0].domain !== platformDomain(c.env)) {
+    await recomputeBioHost(db, c.env, existing[0].domain);
+  }
 
   return noContent(c);
 });

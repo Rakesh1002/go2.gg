@@ -29,9 +29,8 @@ const gallery = {
 };
 
 describe("BioClient settings", () => {
-  it("keeps the custom-domain picker and 18+ toggle disabled while custom bio domains are in setup", async () => {
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      expect(init?.method ?? "GET").toBe("GET");
+  it("enables the custom-domain picker and gates 18+ on the verified-domain rule", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
       const data = url.endsWith("/galleries") ? [gallery] : gallery;
       return new Response(JSON.stringify({ data }), { status: 200 });
     });
@@ -40,18 +39,19 @@ describe("BioClient settings", () => {
     render(<BioClient />);
     await userEvent.click(await screen.findByRole("tab", { name: /settings/i }));
 
-    expect(screen.getByText(/Custom domains and 18\+ mode are in setup/)).toBeInTheDocument();
+    // The "in setup" gate is gone; 18+ is now gated by the real domain rule.
+    expect(screen.queryByText(/are in setup/)).toBeNull();
+    expect(screen.getByText(/Move this page to a verified custom domain/)).toBeInTheDocument();
+
+    // The domain picker is enabled now that custom bio domains are live.
     const domainPicker = screen
       .getAllByRole("combobox")
       .find((el) => el.textContent === "go2.gg") as HTMLElement;
-    expect(domainPicker).toBeDisabled();
+    expect(domainPicker).not.toBeDisabled();
+
+    // 18+ stays disabled only because this page is still on the platform domain.
     const adultToggle = screen.getAllByRole("switch").at(-1) as HTMLElement;
     expect(adultToggle).toBeDisabled();
-
-    await userEvent.click(adultToggle);
-    await userEvent.click(domainPicker);
-    expect(screen.queryByRole("option", { name: "mine.example" })).toBeNull();
-    expect(fetchMock.mock.calls.every(([, init]) => (init?.method ?? "GET") === "GET")).toBe(true);
     vi.unstubAllGlobals();
   });
 });

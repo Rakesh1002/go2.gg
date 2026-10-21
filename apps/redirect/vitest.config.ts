@@ -19,6 +19,7 @@ export default defineWorkersConfig({
                 headers: {
                   "x-mock": "api",
                   "x-track-only": request.headers.get("x-go2-track-only") ?? "",
+                  "x-bio-domain": request.headers.get("x-go2-bio-domain") ?? "",
                 },
               });
             },

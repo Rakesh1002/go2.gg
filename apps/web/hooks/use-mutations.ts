@@ -182,7 +182,9 @@ async function deleteDomain(domainId: string): Promise<void> {
   }
 }
 
-async function verifyDomain(domainId: string): Promise<{ verified: boolean; message: string }> {
+async function verifyDomain(
+  domainId: string
+): Promise<{ verified: boolean; message: string; ssl?: { status: string } }> {
   const response = await fetch(`${API_URL}/api/v1/domains/${domainId}/verify`, {
     method: "POST",
     credentials: "include",

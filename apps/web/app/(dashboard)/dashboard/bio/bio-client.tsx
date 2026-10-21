@@ -124,9 +124,9 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8787";
 // Same derivation the public bio page uses to look galleries up, so staging and self-hosted
 // installs offer their own host rather than go2.gg.
 const PLATFORM_DOMAIN = new URL(process.env.NEXT_PUBLIC_APP_URL || "https://go2.gg").host;
-// Off until custom-domain requests are routed to bio pages: today a page moved off the
-// platform domain 404s, and 18+ mode requires a custom domain.
-const CUSTOM_BIO_DOMAINS_ENABLED = false;
+// Custom-domain bio pages are live: the redirect worker routes a creator's own
+// verified domain to its bound gallery, which also unlocks 18+ mode (own domain).
+const CUSTOM_BIO_DOMAINS_ENABLED = true;
 
 export function BioClient() {
   const [galleries, setGalleries] = useState<Gallery[]>([]);
@@ -139,8 +139,10 @@ export function BioClient() {
     useState<(typeof ITEM_TYPES)[number]["id"]>("link");
   const { subscription } = useSubscription();
   const { data: domains = [] } = useDomains();
+  // Only domains with a live certificate — moving a bio page to a domain whose
+  // cert isn't active yet would take it off its working URL and fail HTTPS.
   const verifiedDomains = domains
-    .filter((d) => d.verificationStatus === "verified")
+    .filter((d) => d.verificationStatus === "verified" && d.sslStatus === "active")
     .map((d) => d.domain);
 
   const {

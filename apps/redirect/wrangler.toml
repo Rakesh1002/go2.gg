@@ -44,6 +44,14 @@ name = "go2-redirect-production"
 pattern = "go2.gg/*"
 zone_name = "go2.gg"
 
+# Catch-all for Cloudflare for SaaS custom hostnames (creator bio domains). They
+# enter the go2.gg zone via the fallback origin (cname.go2.gg); this wildcard
+# routes them here. More-specific routes (api./www./mcp.go2.gg) still win for
+# go2's own subdomains, so only custom hostnames and bare go2.gg land here.
+[[env.production.routes]]
+pattern = "*/*"
+zone_name = "go2.gg"
+
 [env.production.vars]
 APP_ENV = "production"
 DEFAULT_DOMAIN = "go2.gg"

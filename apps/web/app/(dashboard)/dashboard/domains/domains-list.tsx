@@ -39,15 +39,25 @@ export function DomainsList() {
   async function handleVerifyDomain(id: string) {
     try {
       const result = await verifyDomainMutation.mutateAsync(id);
-      if (result.verified) {
-        toast.success("Domain verified successfully!");
-      } else {
+      if (!result.verified) {
         toast.error(result.message || "Verification pending");
+      } else if (result.ssl && result.ssl.status !== "active" && result.ssl.status !== "pending_validation") {
+        toast.error("Verified, but the certificate couldn't be issued yet. Try again in a moment.");
+      } else if (result.ssl && result.ssl.status !== "active") {
+        toast.success("Verified! The certificate is being issued — usually a minute or two.");
+      } else {
+        toast.success("Domain verified successfully!");
       }
     } catch {
       // Error toast is handled by the mutation hook
     }
   }
+
+  // A verified domain whose certificate isn't active yet still needs attention:
+  // keep the DNS panel + a retry visible (covers transient Cloudflare failures
+  // and rows verified before certificates were provisioned).
+  const needsAttention = (domain: Domain) =>
+    domain.verificationStatus !== "verified" || domain.sslStatus !== "active";
 
   function handleDeleteClick(domain: Domain) {
     setDomainToDelete(domain);
@@ -134,6 +144,14 @@ export function DomainsList() {
                       Pending
                     </Badge>
                   )}
+                  {domain.verificationStatus === "verified" && domain.sslStatus !== "active" && (
+                    <Badge variant="secondary" className="gap-1">
+                      <Clock className="h-3 w-3" />
+                      {domain.sslStatus === "pending_validation"
+                        ? "Certificate issuing"
+                        : "Certificate pending"}
+                    </Badge>
+                  )}
                 </div>
               </div>
             </div>
@@ -145,10 +163,10 @@ export function DomainsList() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {domain.verificationStatus !== "verified" && (
+                {needsAttention(domain) && (
                   <DropdownMenuItem onClick={() => handleVerifyDomain(domain.id)}>
                     <RefreshCw className="mr-2 h-4 w-4" />
-                    Verify now
+                    {domain.verificationStatus === "verified" ? "Check certificate" : "Verify now"}
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
@@ -163,37 +181,41 @@ export function DomainsList() {
             </DropdownMenu>
           </CardHeader>
 
-          {domain.verificationStatus !== "verified" && (
+          {needsAttention(domain) && (
             <CardContent className="pt-0">
               <div className="space-y-4 rounded-lg border bg-muted/50 p-4">
                 <p className="font-medium text-sm">
-                  Add the following DNS records to verify ownership:
+                  {domain.verificationStatus === "verified"
+                    ? "Point your domain at Go2 to finish issuing its certificate:"
+                    : "Add the following DNS records to verify ownership:"}
                 </p>
 
                 <div className="space-y-3">
-                  <div className="flex items-start gap-3">
-                    <Badge variant="outline" className="shrink-0">
-                      TXT
-                    </Badge>
-                    <div className="min-w-0 flex-1">
-                      <p className="break-all font-mono text-muted-foreground text-sm">
-                        {domain.dnsRecords.verification.name}
-                      </p>
-                      <div className="mt-1 flex items-center gap-2">
-                        <p className="break-all font-mono text-sm">
-                          {domain.dnsRecords.verification.value}
+                  {domain.verificationStatus !== "verified" && (
+                    <div className="flex items-start gap-3">
+                      <Badge variant="outline" className="shrink-0">
+                        TXT
+                      </Badge>
+                      <div className="min-w-0 flex-1">
+                        <p className="break-all font-mono text-muted-foreground text-sm">
+                          {domain.dnsRecords.verification.name}
                         </p>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 shrink-0"
-                          onClick={() => copyToClipboard(domain.dnsRecords.verification.value)}
-                        >
-                          <Copy className="h-3 w-3" />
-                        </Button>
+                        <div className="mt-1 flex items-center gap-2">
+                          <p className="break-all font-mono text-sm">
+                            {domain.dnsRecords.verification.value}
+                          </p>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 shrink-0"
+                            onClick={() => copyToClipboard(domain.dnsRecords.verification.value)}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="flex items-start gap-3">
                     <Badge variant="outline" className="shrink-0">
@@ -227,7 +249,7 @@ export function DomainsList() {
                   <RefreshCw
                     className={`mr-2 h-4 w-4 ${verifyDomainMutation.isPending ? "animate-spin" : ""}`}
                   />
-                  Check verification
+                  {domain.verificationStatus === "verified" ? "Check certificate" : "Check verification"}
                 </Button>
               </div>
             </CardContent>

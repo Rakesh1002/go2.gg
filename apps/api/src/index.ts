@@ -243,8 +243,20 @@ app.use("*", async (c, next) => {
   if (!c.env.WEB) {
     return next();
   }
-  const host = c.req.header("host")?.split(":")[0]?.toLowerCase() ?? "";
-  if (!isApexHost(c.env, host)) {
+  // Strip a trailing dot (FQDN form) so "api.go2.gg." can't dodge the subdomain
+  // check below.
+  const host = (c.req.header("host")?.split(":")[0]?.toLowerCase() ?? "").replace(/\.$/, "");
+  // Custom-domain bio pages arrive with the creator's real host; the redirect
+  // worker marks them with x-go2-bio-domain so they also stream to the web app.
+  // Only honor the header for genuine external hosts — never the platform's own
+  // subdomains (api./mcp./www.go2.gg) — so a client can't forge it to divert
+  // API traffic to the web worker.
+  const defaultDomain = (c.env.DEFAULT_DOMAIN ?? "go2.gg").toLowerCase();
+  const isBioForward =
+    !!c.req.header("x-go2-bio-domain") &&
+    host !== defaultDomain &&
+    !host.endsWith(`.${defaultDomain}`);
+  if (!isApexHost(c.env, host) && !isBioForward) {
     return next();
   }
   const { pathname } = new URL(c.req.url);
@@ -334,6 +346,15 @@ app.use(
       // For requests without Origin header (like server-to-server), allow
       if (!origin) {
         return "*";
+      }
+
+      // Public bio-page endpoints are fetched cross-origin from creators' custom
+      // domains (email signup, gated unlock). They are unauthenticated and carry
+      // no secrets, so reflecting any origin for them is safe and necessary.
+      // Anchor the path so it can't match an authenticated route that merely
+      // contains the substring (e.g. /api/v1/files/.../public/galleries/...).
+      if (/^\/(api\/)?v1\/public\/galleries\//.test(new URL(c.req.url).pathname)) {
+        return origin;
       }
 
       return "";

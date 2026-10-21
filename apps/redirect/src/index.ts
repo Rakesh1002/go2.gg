@@ -114,10 +114,56 @@ function emitAxiom(env: Env, fields: Record<string, unknown>): Promise<void> {
     .catch(() => undefined);
 }
 
+/**
+ * Custom-domain bio page: a creator's own domain, bound to a gallery, serves the
+ * web app — the page AND its assets (/_next/*, images). biohost:<host> (written
+ * by the API when a gallery is moved onto the domain) maps the host to a gallery
+ * slug. Tag every request so the apex shim streams it to the web worker, and
+ * rewrite only the root to the existing /bio/<slug> renderer. Returns null (fall
+ * through to normal slug handling) for the platform's own hosts — which keeps the
+ * go2.gg hot path read-free — and for ACME challenge paths (edge-served for
+ * custom hostnames, must not be rewritten). A bound bio domain serves the bio,
+ * not short links.
+ *
+ * shortcut: a non-bio custom (link) domain pays one extra cached biohost miss per
+ * click; collapse into the existing domain:slug read if it ever matters.
+ */
+async function serveBioHost(
+  request: Request,
+  url: URL,
+  method: string,
+  env: Env
+): Promise<Response | null> {
+  if (method !== "GET" && method !== "HEAD") return null;
+  const host = (request.headers.get("host")?.split(":")[0]?.toLowerCase() || "").replace(/\.$/, "");
+  const platform = (env.DEFAULT_DOMAIN || "go2.gg").toLowerCase();
+  if (!host || host === platform || host === `www.${platform}` || url.pathname.startsWith("/.well-known/")) {
+    return null;
+  }
+  // Short TTL (KV's 60s floor): a slug change or primary switch updates the
+  // mapping immediately, so bound how long an edge can serve the old one.
+  const bio = await env.LINKS_KV.get<{ slug: string }>(`biohost:${host}`, {
+    type: "json",
+    cacheTtl: 60,
+  });
+  if (!bio?.slug) return null;
+  const target = new URL(request.url);
+  if (url.pathname === "/" || url.pathname === "") {
+    target.pathname = `/bio/${encodeURIComponent(bio.slug)}`;
+  }
+  const headers = new Headers(request.headers);
+  headers.set("x-go2-bio-domain", host);
+  return forward(new Request(target.toString(), { method, headers }), env);
+}
+
 async function handle(request: Request, env: Env, ctx: ExecutionContext, wasWarm: boolean): Promise<Response> {
   const t0 = Date.now();
   const url = new URL(request.url);
   const method = request.method;
+
+  const bioResponse = await serveBioHost(request, url, method, env);
+  if (bioResponse) return bioResponse;
+
   const match = SLUG_RE.exec(url.pathname);
   const slug = match?.[1];
 

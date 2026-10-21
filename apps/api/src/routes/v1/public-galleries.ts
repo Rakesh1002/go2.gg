@@ -16,6 +16,7 @@ import { eq, and, asc } from "drizzle-orm";
 import * as schema from "@repo/db";
 import type { Env } from "../../bindings.js";
 import { ok, notFound } from "../../lib/response.js";
+import { platformDomain } from "../../lib/domain-access.js";
 
 const publicGalleries = new Hono<{ Bindings: Env }>();
 
@@ -42,6 +43,28 @@ publicGalleries.get("/:domain/:slug", async (c) => {
 
   if (!gallery[0]) {
     return notFound(c, "Gallery not found");
+  }
+
+  // On a custom domain, only serve the gallery if it belongs to the user who
+  // owns the verified domain. Otherwise a gallery left behind after a domain
+  // changes hands — or made by a now-removed org member (whose stored org id is
+  // a stale snapshot) — would be served under the owner's domain + certificate.
+  // We match on the domain owner's user id (stable), not the gallery's org id
+  // (a snapshot). The platform domain is shared, so every gallery is valid there.
+  if (gallery[0].domain !== platformDomain(c.env)) {
+    const [d] = await db
+      .select({
+        userId: schema.domains.userId,
+        verificationStatus: schema.domains.verificationStatus,
+      })
+      .from(schema.domains)
+      .where(eq(schema.domains.domain, gallery[0].domain))
+      .limit(1);
+    const ownedAndVerified =
+      !!d && d.verificationStatus === "verified" && gallery[0].userId === d.userId;
+    if (!ownedAndVerified) {
+      return notFound(c, "Gallery not found");
+    }
   }
 
   // Get visible items

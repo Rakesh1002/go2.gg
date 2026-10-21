@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { BioPageClient } from "./bio-page-client";
@@ -42,13 +43,28 @@ interface GalleryData {
 
 async function getGallery(slug: string): Promise<GalleryData | null> {
   try {
-    // Galleries are stored against their canonical public domain (today
-    // always "go2.gg"). On Cloudflare/OpenNext we cannot rely on the
-    // request `host` header (it can be a *.workers.dev preview hostname),
-    // so we always look up against the canonical app URL.
+    // Galleries are stored against their public domain. We can't trust the raw
+    // request `host` (it can be a *.workers.dev preview hostname), so default to
+    // the canonical app URL. For a custom-domain bio page the redirect worker
+    // sets x-go2-bio-domain to the creator's verified domain — the gallery is
+    // stored under that domain, so use it when present (validated as a hostname).
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://go2.gg";
-    const domain = new URL(appUrl).host;
-    const path = `/api/v1/public/galleries/${domain}/${slug}`;
+    let domain = new URL(appUrl).host;
+    try {
+      const bioDomain = (await headers()).get("x-go2-bio-domain");
+      // Require a real multi-label hostname so a crafted header can't inject
+      // path segments (e.g. "..") into the public-gallery API URL below.
+      if (
+        bioDomain &&
+        bioDomain.length <= 253 &&
+        /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(bioDomain)
+      ) {
+        domain = bioDomain.toLowerCase();
+      }
+    } catch {
+      // headers() unavailable (non-request context) — keep the default domain.
+    }
+    const path = `/api/v1/public/galleries/${encodeURIComponent(domain)}/${slug}`;
 
     // Prefer the API service binding when running in the Cloudflare runtime
     // — calling api.go2.gg over the public network from a same-account
