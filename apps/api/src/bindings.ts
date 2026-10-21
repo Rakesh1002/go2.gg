@@ -358,6 +358,12 @@ declare module "hono" {
      * onto those responses — it breaks Next.js hydration.
      */
     apexWebFallthrough?: boolean;
+    /**
+     * Set by the cloaked-link click handler. The response carries its own
+     * frame-permitting, nonce'd CSP; the security-headers middleware must not
+     * overwrite it with the strict API CSP (which blocks the iframe + script).
+     */
+    cloakResponse?: boolean;
   }
 }
 

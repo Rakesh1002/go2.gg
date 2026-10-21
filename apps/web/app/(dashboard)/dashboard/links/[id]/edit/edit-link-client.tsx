@@ -82,6 +82,8 @@ const editLinkSchema = z.object({
   ogTitle: z.string().max(200).optional(),
   ogDescription: z.string().max(500).optional(),
   ogImage: z.string().url("Invalid image URL").optional().or(z.literal("")),
+  // Link cloaking (URL masking)
+  rewrite: z.boolean().optional(),
   // Tracking pixels
   trackingPixels: z.array(trackingPixelSchema).optional(),
   enablePixelTracking: z.boolean().optional(),
@@ -112,6 +114,7 @@ interface LinkData {
   ogTitle?: string;
   ogDescription?: string;
   ogImage?: string;
+  rewrite?: boolean;
   trackingPixels?: TrackingPixel[];
   enablePixelTracking?: boolean;
   requirePixelConsent?: boolean;
@@ -154,6 +157,7 @@ export function EditLinkClient({ linkId }: EditLinkClientProps) {
       ogTitle: "",
       ogDescription: "",
       ogImage: "",
+      rewrite: false,
       trackingPixels: [],
       enablePixelTracking: false,
       requirePixelConsent: false,
@@ -220,6 +224,7 @@ export function EditLinkClient({ linkId }: EditLinkClientProps) {
           ogTitle: linkData.ogTitle || "",
           ogDescription: linkData.ogDescription || "",
           ogImage: linkData.ogImage || "",
+          rewrite: linkData.rewrite || false,
           trackingPixels: linkData.trackingPixels || [],
           enablePixelTracking: linkData.enablePixelTracking || false,
           requirePixelConsent: linkData.requirePixelConsent || false,
@@ -283,6 +288,7 @@ export function EditLinkClient({ linkId }: EditLinkClientProps) {
         ...(data.ogTitle !== undefined && { ogTitle: data.ogTitle || null }),
         ...(data.ogDescription !== undefined && { ogDescription: data.ogDescription || null }),
         ...(data.ogImage !== undefined && { ogImage: data.ogImage || null }),
+        ...(data.rewrite !== undefined && { rewrite: data.rewrite }),
         // Tracking pixels
         trackingPixels: validPixels.length > 0 ? validPixels : [],
         clearTrackingPixels: validPixels.length === 0,
@@ -509,6 +515,30 @@ export function EditLinkClient({ linkId }: EditLinkClientProps) {
                       </FormItem>
                     )}
                   />
+
+                  {/* Show for Pro+ (to toggle freely) and for anyone whose link
+                      is already cloaked (so a downgraded org can turn it off). */}
+                  {(capabilities.canUseLinkCloaking || link?.rewrite) && (
+                    <FormField
+                      control={form.control}
+                      name="rewrite"
+                      render={({ field }) => (
+                        <FormItem className="flex items-start justify-between gap-4 rounded-lg border bg-muted/30 p-3">
+                          <div className="space-y-1">
+                            <FormLabel>Link cloaking</FormLabel>
+                            <FormDescription className="text-xs">
+                              Mask the destination: the page loads inside a frame so your short link
+                              stays in the address bar. Only works on sites that allow embedding —
+                              many large sites block it.
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  )}
 
                   <div className="space-y-4">
                     <h4 className="font-medium text-sm">UTM Parameters</h4>

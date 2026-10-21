@@ -408,7 +408,11 @@ app.use("*", async (c, next) => {
   if (c.get("apexWebFallthrough")) {
     return;
   }
+  // A cloaked click response sets its own frame-permitting, nonce'd CSP; keep
+  // every other hardening header but don't clobber that CSP with the strict one.
+  const isCloak = c.get("cloakResponse");
   for (const [name, value] of Object.entries(API_SECURITY_HEADERS)) {
+    if (isCloak && name === "Content-Security-Policy") continue;
     c.res.headers.set(name, value);
   }
 });
@@ -1059,15 +1063,28 @@ app.get("/:slug", async (c, next) => {
     return c.html(trackingPage);
   }
 
-  // Check if link cloaking (rewrite) is enabled
-  if (link.rewrite) {
-    // Generate cloaked page that embeds destination in iframe
+  // Check if link cloaking (rewrite) is enabled. Only https destinations can be
+  // cloaked — an http iframe inside our https page is refused as mixed content,
+  // so a non-https cloak link falls through to the normal redirect below.
+  if (link.rewrite && destination.toLowerCase().startsWith("https://")) {
+    // Cloaking embeds a third-party page in an iframe and runs a small inline
+    // loader script — both are refused by the API's global CSP (default-src
+    // 'self', script-src 'self'). Serve THIS response with a cloak-scoped CSP:
+    // a per-response nonce for the loader, frame-src for the destination. The
+    // `cloakResponse` flag stops the security middleware from overwriting it.
+    const nonce = crypto.randomUUID();
     const cloakedPage = generateCloakedPage(destination, {
       title: link.ogTitle,
       description: link.ogDescription,
       image: link.ogImage,
+      nonce,
     });
 
+    c.set("cloakResponse", true);
+    c.header(
+      "Content-Security-Policy",
+      `default-src 'none'; frame-src https:; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'`
+    );
     return c.html(cloakedPage);
   }
 

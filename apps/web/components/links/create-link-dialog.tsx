@@ -109,6 +109,8 @@ const createLinkSchema = z.object({
   ogTitle: z.string().max(200).optional(),
   ogDescription: z.string().max(500).optional(),
   ogImage: z.string().url("Invalid image URL").optional().or(z.literal("")),
+  // Link cloaking (URL masking)
+  rewrite: z.boolean().optional(),
   // Tracking pixels
   trackingPixels: z.array(trackingPixelSchema).optional(),
   enablePixelTracking: z.boolean().optional(),
@@ -195,6 +197,7 @@ export function CreateLinkDialog({
       ogTitle: "",
       ogDescription: "",
       ogImage: "",
+      rewrite: false,
       trackingPixels: [],
       enablePixelTracking: false,
       requirePixelConsent: false,
@@ -380,6 +383,7 @@ export function CreateLinkDialog({
         ...(data.ogTitle && { ogTitle: data.ogTitle }),
         ...(data.ogDescription && { ogDescription: data.ogDescription }),
         ...(data.ogImage && { ogImage: data.ogImage }),
+        ...(data.rewrite !== undefined && { rewrite: data.rewrite }),
         // Tracking pixels
         ...(validPixels.length > 0 && { trackingPixels: validPixels }),
         ...(data.enablePixelTracking !== undefined && {
@@ -760,6 +764,35 @@ export function CreateLinkDialog({
                   <LockedFeatureField
                     label="Link Expiration & Click Limit"
                     description="Set links to expire after a certain date or click count"
+                    requiredPlan="Pro"
+                  />
+                )}
+
+                {/* Link Cloaking - Pro+ Feature */}
+                {capabilities.canUseLinkCloaking ? (
+                  <FormField
+                    control={form.control}
+                    name="rewrite"
+                    render={({ field }) => (
+                      <FormItem className="flex items-start justify-between gap-4 rounded-lg border bg-muted/30 p-3">
+                        <div className="space-y-1">
+                          <FormLabel>Link cloaking</FormLabel>
+                          <FormDescription className="text-xs">
+                            Mask the destination: the page loads inside a frame so your short link
+                            stays in the address bar. Only works on sites that allow embedding —
+                            many large sites block it.
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch checked={!!field.value} onCheckedChange={field.onChange} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                ) : (
+                  <LockedFeatureField
+                    label="Link Cloaking"
+                    description="Mask your destination URL behind your short link"
                     requiredPlan="Pro"
                   />
                 )}

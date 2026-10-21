@@ -15,6 +15,10 @@ interface CloakedPageOptions {
   title?: string;
   description?: string;
   image?: string;
+  /** CSP nonce for the inline loader script. The cloak response is served with
+   *  a `script-src 'nonce-...'` CSP (see apps/api/src/index.ts) because the
+   *  global API CSP would otherwise refuse this page's inline script. */
+  nonce?: string;
 }
 
 /**
@@ -24,7 +28,7 @@ export function generateCloakedPage(
   destinationUrl: string,
   options: CloakedPageOptions = {}
 ): string {
-  const { title, description, image } = options;
+  const { title, description, image, nonce } = options;
 
   // Extract domain from destination for default title
   let domain = "Go2";
@@ -172,8 +176,8 @@ export function generateCloakedPage(
     src="${escapeHtml(destinationUrl)}"
     sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation"
   ></iframe>
-  
-  <script>
+
+  <script${nonce ? ` nonce="${nonce}"` : ""}>
     (function() {
       var loading = document.getElementById('loading');
       var error = document.getElementById('error');

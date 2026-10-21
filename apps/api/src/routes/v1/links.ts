@@ -117,6 +117,9 @@ const createLinkSchema = z.object({
   utmContent: z.string().max(100).optional(),
   iosUrl: deepLinkUrl().optional(),
   androidUrl: deepLinkUrl().optional(),
+  // Link cloaking (URL masking) — Pro+. Serves the destination inside an
+  // iframe so the short link stays in the address bar.
+  rewrite: z.boolean().optional(),
   ogTitle: z.string().max(200).optional(),
   ogDescription: z.string().max(500).optional(),
   ogImage: httpUrl().optional(),
@@ -202,6 +205,21 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
     if (plan === "free") {
       return forbidden(c, "Upgrade to Pro to add retargeting pixels");
     }
+  }
+
+  // Plan-gate link cloaking (Pro+). Same defense-in-depth as pixels — the
+  // dashboard hides the toggle for Free, this stops a hand-rolled API call.
+  if (input.rewrite === true) {
+    const plan = await getPlanForOrg(db, user.organizationId);
+    if (plan === "free") {
+      return forbidden(c, "Upgrade to Pro to enable link cloaking");
+    }
+  }
+
+  // Cloaking and the pixel interstitial both own the click response, and the
+  // interstitial is served first — enabling both would silently drop cloaking.
+  if (input.rewrite === true && wantsPixels) {
+    return badRequest(c, "Link cloaking and tracking pixels can't both be enabled on one link");
   }
 
   // Verify caller can write to the requested folder. Folders themselves are
@@ -331,6 +349,7 @@ links.post("/", zValidator("json", createLinkSchema), async (c) => {
     ogTitle: input.ogTitle,
     ogDescription: input.ogDescription,
     ogImage: input.ogImage,
+    rewrite: input.rewrite ?? false,
     // Retargeting pixels
     trackingPixels: input.trackingPixels ? JSON.stringify(input.trackingPixels) : null,
     enablePixelTracking: input.enablePixelTracking ?? false,
@@ -662,6 +681,24 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
     }
   }
 
+  // Plan-gate ENABLING link cloaking (Pro+). Only the false→true transition is
+  // gated: a downgraded org re-sending an already-cloaked link's `true` (e.g.
+  // just editing the destination) must not 403 every save.
+  if (input.rewrite === true && !existing[0].rewrite) {
+    const plan = await getPlanForOrg(db, existing[0].organizationId);
+    if (plan === "free") {
+      return forbidden(c, "Upgrade to Pro to enable link cloaking");
+    }
+  }
+
+  // Cloaking and the pixel interstitial conflict (see create). Guard the merged
+  // post-update state so you can't end up with both enabled on one link.
+  const effectiveRewrite = input.rewrite ?? existing[0].rewrite;
+  const effectivePixels = input.enablePixelTracking ?? existing[0].enablePixelTracking;
+  if (effectiveRewrite && effectivePixels) {
+    return badRequest(c, "Link cloaking and tracking pixels can't both be enabled on one link");
+  }
+
   // If folder is being changed, verify the caller can write to the new folder.
   // null is allowed — clears the assignment.
   if (input.folderId !== undefined && input.folderId !== null) {
@@ -769,6 +806,7 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
     ...(input.ogTitle !== undefined && { ogTitle: input.ogTitle }),
     ...(input.ogDescription !== undefined && { ogDescription: input.ogDescription }),
     ...(input.ogImage !== undefined && { ogImage: input.ogImage }),
+    ...(input.rewrite !== undefined && { rewrite: input.rewrite }),
     ...(input.isArchived !== undefined && { isArchived: input.isArchived }),
     ...(input.folderId !== undefined && { folderId: input.folderId }),
     // Retargeting pixels
@@ -1138,6 +1176,8 @@ function formatLink(link: schema.Link, _defaultDomain: string) {
       description: link.ogDescription,
       image: link.ogImage,
     },
+    // Link cloaking (URL masking)
+    rewrite: link.rewrite ?? false,
     // Retargeting pixels
     trackingPixels: link.trackingPixels ? JSON.parse(link.trackingPixels) : [],
     enablePixelTracking: link.enablePixelTracking ?? false,
