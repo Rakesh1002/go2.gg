@@ -2,15 +2,21 @@ import { describe, expect, it } from "vitest";
 import type { TrackingPixel } from "../src/bindings";
 import { generatePixelTrackingPage } from "../src/lib/pixel-tracking";
 
+// U+2028/U+2029 are JS line terminators; js() escapes them so they can't break
+// out of a string literal. Build them via fromCharCode to keep this source file
+// free of raw separators (and of fragile \u escapes).
+const LS = String.fromCharCode(0x2028);
+const PS = String.fromCharCode(0x2029);
+
 const PAYLOAD =
   "x');alert(document.domain);//</script><script>alert(1)</script>\"><img src=x onerror=alert(2)>";
 const TYPES = ["facebook", "google", "ga4", "linkedin", "tiktok", "twitter", "pinterest"] as const;
 
 const literal = (value: string) =>
   JSON.stringify(value)
-    .replace(/</g, "\\u003c")
-    .replace(/\u2028/g, "\\u2028")
-    .replace(/\u2029/g, "\\u2029");
+    .replaceAll("<", "\\u003c")
+    .replaceAll(LS, "\\u2028")
+    .replaceAll(PS, "\\u2029");
 
 function scriptsOf(html: string): string[] {
   return [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
@@ -52,8 +58,8 @@ describe("generatePixelTrackingPage", () => {
     "`;alert(1);`",
     "${alert(1)}",
     "x\n');alert(1);//",
-    "x\u2028alert(1)",
-    "x\u2029alert(1)",
+    `x${LS}alert(1)`,
+    `x${PS}alert(1)`,
   ])("emits parseable consent-mode JS for pixelId %j", (pixelId) => {
     const pixels: TrackingPixel[] = TYPES.map((type) => ({
       type,

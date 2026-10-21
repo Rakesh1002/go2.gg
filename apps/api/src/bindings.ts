@@ -90,6 +90,16 @@ export interface Env {
   /** Default domain for short links */
   DEFAULT_DOMAIN: string;
 
+  /**
+   * Origin of the dedicated, cookieless pixel-tracking domain (e.g.
+   * "https://go2track.example"). When set, pixel-enabled links hand off their
+   * interstitial to this origin so owner-supplied tracking JS runs isolated from
+   * go2.gg. When unset, pixel serving is disabled (links redirect normally).
+   * MUST be a separate registrable domain, never a go2.gg subdomain (the session
+   * cookie is scoped to .go2.gg). See lib/pixel-origin.ts.
+   */
+  PIXEL_ORIGIN?: string;
+
   /** Stripe secret key */
   STRIPE_SECRET_KEY: string;
 

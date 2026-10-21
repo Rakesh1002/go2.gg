@@ -174,7 +174,12 @@ document.getElementById('decline-btn').onclick = function() {
 }
 
 /**
- * Generate the complete pixel tracking page
+ * Generate the complete pixel tracking page. Served top-level on the dedicated
+ * tracking origin (PIXEL_ORIGIN) — a throwaway domain with no go2 cookies, not
+ * in the API's CORS allowlist, and not the go2.gg brand — so it is safe for it
+ * to run the owner's third-party and "custom" tracking scripts and then redirect
+ * itself to the destination. (It must NEVER be served on go2.gg: owner JS there
+ * would be cross-tenant takeover / trusted-domain phishing.)
  */
 export function generatePixelTrackingPage(
   destinationUrl: string,

@@ -197,6 +197,27 @@ service = "go2-web-production"
 pattern = "mcp.go2.gg"
 custom_domain = true
 
+# -----------------------------------------------------------------------------
+# Pixel tracking origin (PIXEL_ORIGIN) — DISABLED until a domain is provisioned.
+#
+# Pixel-enabled links run the owner's third-party / "custom" tracking JS. That
+# is unsafe on go2.gg (cross-tenant takeover + trusted-domain phishing), so the
+# click hands off to a dedicated, cookieless throwaway domain that runs the JS
+# in isolation (see src/lib/pixel-origin.ts). While PIXEL_ORIGIN is unset, pixel
+# serving is simply OFF — pixel links redirect normally.
+#
+# To enable, with a SEPARATE registrable domain (never a go2.gg subdomain — the
+# session cookie is scoped to .go2.gg — and nothing else may run on it):
+#   1. Add the domain as a zone on this Cloudflare account.
+#   2. Uncomment the route + var below, replacing the placeholder domain.
+#   3. Deploy. `custom_domain = true` provisions DNS + SSL on first deploy.
+# [[env.production.routes]]
+# pattern = "testdomain12345678xyz.com"
+# custom_domain = true
+#
+# [env.production.vars]  (add alongside the vars above, not a second table)
+# PIXEL_ORIGIN = "https://testdomain12345678xyz.com"
+
 # Production bindings (same as development - they share resources)
 [[env.production.d1_databases]]
 binding = "DB"

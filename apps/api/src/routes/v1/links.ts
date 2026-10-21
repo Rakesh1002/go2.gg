@@ -670,11 +670,14 @@ links.patch("/:id", zValidator("json", updateLinkSchema), async (c) => {
     return forbidden(c, "You don't have access to this link");
   }
 
-  // Plan-gate retargeting pixels (Pro+). Defense in depth — the dashboard
-  // hides the UI for Free, but a hand-rolled PATCH could otherwise bypass.
-  const wantsPixels =
-    (input.trackingPixels && input.trackingPixels.length > 0) || input.enablePixelTracking === true;
-  if (wantsPixels) {
+  // Plan-gate ENABLING retargeting pixels (Pro+). Defense in depth — the
+  // dashboard hides the UI for Free, but a hand-rolled PATCH could bypass.
+  // Gate only the enablePixelTracking false→true transition (the master switch
+  // the serving path keys on), mirroring the cloak gate below. Re-saving a link
+  // that already has pixels on — or editing one whose stored pixels are toggled
+  // off — must not 403: the edit form always re-sends the stored pixel array,
+  // so gating on "wants pixels" would reject every ordinary save.
+  if (input.enablePixelTracking === true && !existing[0].enablePixelTracking) {
     const plan = await getPlanForOrg(db, existing[0].organizationId);
     if (plan === "free") {
       return forbidden(c, "Upgrade to Pro to add retargeting pixels");

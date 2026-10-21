@@ -63,7 +63,6 @@ import {
 } from "./lib/analytics.js";
 
 // Pixel tracking
-import { generatePixelTrackingPage } from "./lib/pixel-tracking.js";
 
 // Axiom logger (for the pixel-interstitial-served event)
 import { logEvent as logToAxiom } from "./lib/axiom.js";
@@ -410,6 +409,9 @@ app.use("*", async (c, next) => {
   }
   // A cloaked click response sets its own frame-permitting, nonce'd CSP; keep
   // every other hardening header but don't clobber that CSP with the strict one.
+  // (The pixel interstitial isn't served by this app at all — it's served
+  // standalone on PIXEL_ORIGIN, see servePixelInterstitial, so it never reaches
+  // this middleware.)
   const isCloak = c.get("cloakResponse");
   for (const [name, value] of Object.entries(API_SECURITY_HEADERS)) {
     if (isCloak && name === "Content-Security-Policy") continue;
@@ -1035,32 +1037,47 @@ app.get("/:slug", async (c, next) => {
     ? link.trackingPixels?.filter((p) => p.enabled)
     : undefined;
   if (firingPixels && firingPixels.length > 0 && link.trackingPixels) {
-    const trackingPage = generatePixelTrackingPage(destination, link.trackingPixels, {
-      requireConsent: link.requirePixelConsent,
-      linkTitle: "Redirecting...",
-    });
+    // Pixel links run the owner's third-party and "custom" tracking JS, which is
+    // unsafe on go2.gg (cross-tenant takeover / trusted-domain phishing). Hand
+    // off to the dedicated, cookieless tracking origin (PIXEL_ORIGIN): sign the
+    // already-gated, A/B-resolved, go2_ref-stamped destination and 302 there,
+    // where it fires the pixels then redirects to the destination (see
+    // lib/pixel-origin.ts). The click was already counted by the waitUntil
+    // above, so the tracking origin never counts it again. If PIXEL_ORIGIN isn't
+    // configured, pixel serving is simply off — fall through to a normal redirect.
+    if (c.env.PIXEL_ORIGIN) {
+      // Fire-and-forget: log the hand-off so ops can see pixel clicks taking the
+      // interstitial path (browser-side fires are visible only to the vendors).
+      const pixelSummary = link.trackingPixels.map((p) => ({ type: p.type, enabled: p.enabled }));
+      c.executionCtx.waitUntil(
+        logToAxiom(c.env, "pixel.interstitial.served", {
+          linkId: link.id,
+          slug: link.slug,
+          domain: link.domain,
+          country: (c.req.raw.cf as { country?: string } | undefined)?.country,
+          requireConsent: !!link.requirePixelConsent,
+          pixels: pixelSummary,
+        }).catch(() => {
+          /* never let logging break a redirect */
+        })
+      );
 
-    // Fire-and-forget: log that we served the interstitial. Lets ops verify
-    // a pixel-enabled click actually went through the interstitial path
-    // (browser-side fires are visible only to the destination platforms).
-    const pixelSummary = link.trackingPixels.map((p) => ({
-      type: p.type,
-      enabled: p.enabled,
-    }));
-    c.executionCtx.waitUntil(
-      logToAxiom(c.env, "pixel.interstitial.served", {
-        linkId: link.id,
-        slug: link.slug,
-        domain: link.domain,
-        country: (c.req.raw.cf as { country?: string } | undefined)?.country,
-        requireConsent: !!link.requirePixelConsent,
-        pixels: pixelSummary,
-      }).catch(() => {
-        /* never let logging break a redirect */
-      })
-    );
-
-    return c.html(trackingPage);
+      const { signPixelHandoff } = await import("./lib/pixel-handoff.js");
+      const { getAuthSecret } = await import("./lib/auth-secret.js");
+      const { exp, sig } = await signPixelHandoff(
+        destination,
+        link.domain,
+        link.slug,
+        getAuthSecret(c.env)
+      );
+      const base = c.env.PIXEL_ORIGIN.replace(/\/+$/, "");
+      const target = new URL(`${base}/${encodeURIComponent(link.slug)}`);
+      target.searchParams.set("dest", destination);
+      target.searchParams.set("d", link.domain);
+      target.searchParams.set("exp", String(exp));
+      target.searchParams.set("sig", sig);
+      return c.redirect(target.toString(), 302);
+    }
   }
 
   // Check if link cloaking (rewrite) is enabled. Only https destinations can be
@@ -1335,7 +1352,27 @@ function logJobError(env: Env, job: string, error: unknown): Promise<void> {
 // -----------------------------------------------------------------------------
 
 export default {
-  fetch: app.fetch,
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Dedicated pixel tracking origin (PIXEL_ORIGIN): handle it BEFORE the API
+    // app so it bypasses all auth/CORS/session middleware. It's a standalone,
+    // cookieless serve-only endpoint (see lib/pixel-origin.ts). The try/catch is
+    // scoped to parsing PIXEL_ORIGIN only — servePixelInterstitial catches its
+    // own errors and must never fall through to the app on the tracking host
+    // (that would run the middleware there, count a click, and can loop).
+    let pixelHost: string | undefined;
+    if (env.PIXEL_ORIGIN) {
+      try {
+        pixelHost = new URL(env.PIXEL_ORIGIN).hostname.toLowerCase();
+      } catch {
+        pixelHost = undefined;
+      }
+    }
+    if (pixelHost && new URL(request.url).hostname.toLowerCase() === pixelHost) {
+      const { servePixelInterstitial } = await import("./lib/pixel-origin.js");
+      return await servePixelInterstitial(request, env);
+    }
+    return app.fetch(request, env, ctx);
+  },
 
   /**
    * Handle queued messages for background jobs
