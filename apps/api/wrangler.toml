@@ -163,6 +163,8 @@ PAYMENTS_ADAPTER = "stripe"
 ANALYTICS_ADAPTER = "posthog"
 RATE_LIMIT_ADAPTER = "durable-object"
 DEFAULT_DOMAIN = "go2.gg"
+# Cookieless throwaway origin that isolates link-owner pixel JS off go2.gg (see the pixel block below).
+PIXEL_ORIGIN = "https://testdomain12345678xyz.com"
 EMAIL_FROM_TRANSACTIONAL = "Go2 <noreply@go2.gg>"
 EMAIL_FROM_MARKETING = "Rakesh <rakesh@go2.gg>"
 AXIOM_DATASET = "go2"
@@ -198,25 +200,18 @@ pattern = "mcp.go2.gg"
 custom_domain = true
 
 # -----------------------------------------------------------------------------
-# Pixel tracking origin (PIXEL_ORIGIN) — DISABLED until a domain is provisioned.
+# Pixel tracking origin (PIXEL_ORIGIN)
 #
-# Pixel-enabled links run the owner's third-party / "custom" tracking JS. That
-# is unsafe on go2.gg (cross-tenant takeover + trusted-domain phishing), so the
-# click hands off to a dedicated, cookieless throwaway domain that runs the JS
-# in isolation (see src/lib/pixel-origin.ts). While PIXEL_ORIGIN is unset, pixel
-# serving is simply OFF — pixel links redirect normally.
-#
-# To enable, with a SEPARATE registrable domain (never a go2.gg subdomain — the
-# session cookie is scoped to .go2.gg — and nothing else may run on it):
-#   1. Add the domain as a zone on this Cloudflare account.
-#   2. Uncomment the route + var below, replacing the placeholder domain.
-#   3. Deploy. `custom_domain = true` provisions DNS + SSL on first deploy.
-# [[env.production.routes]]
-# pattern = "testdomain12345678xyz.com"
-# custom_domain = true
-#
-# [env.production.vars]  (add alongside the vars above, not a second table)
-# PIXEL_ORIGIN = "https://testdomain12345678xyz.com"
+# Pixel-enabled links run the owner's third-party / "custom" tracking JS, which
+# is unsafe on go2.gg (cross-tenant takeover + trusted-domain phishing). So the
+# click hands off to this dedicated, cookieless throwaway domain, which runs the
+# JS in isolation (see src/lib/pixel-origin.ts). It must stay a SEPARATE
+# registrable domain (never a go2.gg subdomain — the session cookie is scoped to
+# .go2.gg) with nothing else on it. PIXEL_ORIGIN is set in the vars block above;
+# remove it there to turn pixel serving back off.
+[[env.production.routes]]
+pattern = "testdomain12345678xyz.com"
+custom_domain = true
 
 # Production bindings (same as development - they share resources)
 [[env.production.d1_databases]]
