@@ -302,6 +302,11 @@ export interface CachedLink {
   ogTitle?: string;
   ogDescription?: string;
   ogImage?: string;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmTerm?: string;
+  utmContent?: string;
   // Retargeting pixels
   trackingPixels?: TrackingPixel[];
   enablePixelTracking?: boolean;

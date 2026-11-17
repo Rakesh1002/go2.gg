@@ -104,3 +104,46 @@ export function evaluateLink(link: LinkGateInput, nowMs: number): GateDecision {
   }
   return { action: "redirect", destination: link.destinationUrl };
 }
+
+/** Structural subset of CachedLink the redirect URL reads. CachedLink is assignable. */
+export interface RedirectUrlInput {
+  id: string;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmTerm?: string;
+  utmContent?: string;
+}
+
+const UTM_PARAMS = [
+  ["utmSource", "utm_source"],
+  ["utmMedium", "utm_medium"],
+  ["utmCampaign", "utm_campaign"],
+  ["utmTerm", "utm_term"],
+  ["utmContent", "utm_content"],
+] as const;
+
+/**
+ * The URL a click is sent to: the resolved destination plus the link's UTM
+ * fields and the go2_ref click id. A utm_* param already on the destination
+ * wins over the link field, so a geo/device/A-B variant URL can carry its own
+ * tagging and a URL the user typed is never rewritten.
+ */
+export function buildRedirectUrl(
+  destination: string,
+  link: RedirectUrlInput,
+  clickId: string
+): string {
+  try {
+    const url = new URL(destination);
+    for (const [field, param] of UTM_PARAMS) {
+      const value = link[field];
+      if (value && !url.searchParams.has(param)) url.searchParams.set(param, value);
+    }
+    url.searchParams.set("go2_ref", `${link.id}:${clickId}`);
+    return url.toString();
+  } catch {
+    // Non-URL destination (deep-link scheme); leave it untouched.
+    return destination;
+  }
+}

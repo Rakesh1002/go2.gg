@@ -32,6 +32,7 @@
     "@repo/config": "workspace:*",
     "@repo/db": "workspace:*",
     "@repo/email": "workspace:^",
+    "@repo/link-resolver": "workspace:*",
     "@repo/logger": "workspace:*",
     "drizzle-orm": "^0.41.0",
     "hono": "^4.6.14",

@@ -150,6 +150,16 @@ const createLinkSchema = z.object({
 });
 
 const updateLinkSchema = createLinkSchema.partial().extend({
+  // null clears the field; the dashboard edit form sends null for an emptied input.
+  title: z.string().max(200).nullable().optional(),
+  utmSource: z.string().max(100).nullable().optional(),
+  utmMedium: z.string().max(100).nullable().optional(),
+  utmCampaign: z.string().max(100).nullable().optional(),
+  utmTerm: z.string().max(100).nullable().optional(),
+  utmContent: z.string().max(100).nullable().optional(),
+  ogTitle: z.string().max(200).nullable().optional(),
+  ogDescription: z.string().max(500).nullable().optional(),
+  ogImage: httpUrl().nullable().optional(),
   isArchived: z.boolean().optional(),
   // Allow clearing tracking pixels
   clearTrackingPixels: z.boolean().optional(),

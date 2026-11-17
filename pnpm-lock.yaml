@@ -47,6 +47,9 @@ importers:
       '@repo/email':
         specifier: workspace:^
         version: link:../../packages/email
+      '@repo/link-resolver':
+        specifier: workspace:*
+        version: link:../../packages/link-resolver
       '@repo/logger':
         specifier: workspace:*
         version: link:../../packages/logger

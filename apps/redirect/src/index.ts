@@ -37,7 +37,12 @@
  *   302 + go2_ref(clickId)  ──  waitUntil: track-ping + Axiom wall-time
  */
 
-import { evaluateLink, type LinkGateInput } from "@repo/link-resolver";
+import {
+  type LinkGateInput,
+  type RedirectUrlInput,
+  buildRedirectUrl,
+  evaluateLink,
+} from "@repo/link-resolver";
 
 export interface Env {
   LINKS_KV: KVNamespace;
@@ -78,17 +83,6 @@ function generateClickId(): string {
   return Array.from(array)
     .map((b) => chars[b % chars.length])
     .join("");
-}
-
-function stampGo2Ref(destination: string, linkId: string, clickId: string): string {
-  try {
-    const u = new URL(destination);
-    u.searchParams.set("go2_ref", `${linkId}:${clickId}`);
-    return u.toString();
-  } catch {
-    // Non-URL destination (deep-link scheme); leave it untouched.
-    return destination;
-  }
 }
 
 /** Forward the request to the monolith. Re-wrap so outer code can read headers
@@ -192,7 +186,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext, wasWarm
     return forward(request, env);
   }
 
-  const link = cached as unknown as LinkGateInput & { id: string };
+  const link = cached as unknown as LinkGateInput & RedirectUrlInput;
   const decision = evaluateLink(link, Date.now());
   if (decision.action === "forward") {
     return forward(request, env);
@@ -200,7 +194,7 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext, wasWarm
 
   // Native fast path: simple link, gates clear.
   const clickId = generateClickId();
-  const destination = stampGo2Ref(decision.destination, link.id, clickId);
+  const destination = buildRedirectUrl(decision.destination, link, clickId);
   const totalMs = Date.now() - t0;
 
   // Track-only ping: reuse the original request (preserves cf for geo) with the

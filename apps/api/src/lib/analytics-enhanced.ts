@@ -615,7 +615,9 @@ export async function collectClickMetadata(
   options: {
     isUnique?: boolean;
     trigger?: "link" | "qr" | "api";
-  } = {}
+    /** The URL the click was redirected to, carrying the UTMs that actually went out. */
+    redirectUrl: string;
+  }
 ): Promise<ClickMetadata> {
   const cf = request.cf;
   const ua = request.headers.get("user-agent") ?? "";
@@ -631,8 +633,7 @@ export async function collectClickMetadata(
   const isQr = options.trigger === "qr" || detectQrTrigger(request);
   const trigger = options.trigger ?? (isQr ? "qr" : "link");
 
-  // Extract UTM params from destination
-  const utmParams = extractUtmParams(link.destinationUrl);
+  const utmParams = extractUtmParams(options.redirectUrl);
 
   // Resolve agent context: query/header overrides win over link defaults
   const agent = extractAgentContext(request, link);

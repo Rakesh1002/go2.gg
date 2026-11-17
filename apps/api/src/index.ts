@@ -10,6 +10,7 @@
  * - Full API for link management
  */
 
+import { buildRedirectUrl } from "@repo/link-resolver";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { prettyJSON } from "hono/pretty-json";
@@ -711,14 +712,7 @@ app.get("/:slug", async (c, next) => {
   // the persisted click row uses that same id. Honor it; fall back to a fresh
   // id for direct hits to the monolith.
   const clickId = c.req.header("x-go2-click-id") || generateClickId();
-  let destination = baseDestination;
-  try {
-    const destUrl = new URL(baseDestination);
-    destUrl.searchParams.set("go2_ref", `${link.id}:${clickId}`);
-    destination = destUrl.toString();
-  } catch {
-    // Non-URL destination (e.g. a deep link scheme); skip param injection.
-  }
+  const destination = buildRedirectUrl(baseDestination, link, clickId);
 
   // Track click asynchronously (non-blocking)
   c.executionCtx.waitUntil(
@@ -799,6 +793,7 @@ app.get("/:slug", async (c, next) => {
         const metadata = await collectClickMetadata(link, c.req.raw, {
           trigger,
           isUnique: true, // Will be updated by deduplication check
+          redirectUrl: destination,
         });
         // Reuse the synchronously-generated click ID so the persisted click
         // row matches the go2_ref param appended to the redirect destination.

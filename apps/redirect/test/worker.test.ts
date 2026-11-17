@@ -11,6 +11,7 @@ beforeEach(async () => {
   // miniflare KV persists across tests in a run; clear the keys we use.
   for (const k of [
     "go2.gg:simple",
+    "go2.gg:utm",
     "go2.gg:disabled",
     "go2.gg:miss",
     "biohost:links.creator.com",
@@ -35,6 +36,27 @@ describe("go2-redirect worker", () => {
     expect(loc).toContain("go2_ref=lnk_1%3A");
     expect(res.headers.get("server-timing")).toContain("total;dur=");
     expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("appends the link's UTM fields, keeping the destination's own query and utm_* values", async () => {
+    await seed("go2.gg:utm", {
+      id: "lnk_3",
+      slug: "utm",
+      domain: "go2.gg",
+      destinationUrl: "https://agentdrive.sh/?ref=hero&utm_medium=email",
+      utmSource: "producthunt",
+      utmMedium: "launch",
+      utmCampaign: "launch-2026-11",
+    });
+    const res = await SELF.fetch("https://go2.gg/utm", opts);
+    expect(res.status).toBe(302);
+    const params = new URL(res.headers.get("location") ?? "").searchParams;
+    expect(params.get("ref")).toBe("hero");
+    expect(params.get("utm_source")).toBe("producthunt");
+    expect(params.get("utm_medium")).toBe("email");
+    expect(params.get("utm_campaign")).toBe("launch-2026-11");
+    expect(params.has("utm_term")).toBe(false);
+    expect(params.get("go2_ref")).toMatch(/^lnk_3:/);
   });
 
   it("forwards a disabled link to the monolith (renders the 410 page there)", async () => {
