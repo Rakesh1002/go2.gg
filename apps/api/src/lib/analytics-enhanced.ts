@@ -356,15 +356,16 @@ export function parseUserAgent(ua: string): ParsedUserAgent {
     };
     const ntVersion = ua.match(/windows nt ([\d.]+)/i)?.[1] ?? "";
     osVersion = versionMap[ntVersion] ?? ntVersion;
+  } else if (/iphone os|ipad.*os/i.test(ua)) {
+    // Checked before macOS: iPhone and iPad UAs contain "like Mac OS X".
+    os = "iOS";
+    osVersion = ua.match(/(?:iphone|ipad).*os ([\d_]+)/i)?.[1]?.replace(/_/g, ".") ?? "";
   } else if (/mac os x/i.test(ua)) {
     os = "macOS";
     osVersion = ua.match(/mac os x ([\d_]+)/i)?.[1]?.replace(/_/g, ".") ?? "";
   } else if (/android/i.test(ua)) {
     os = "Android";
     osVersion = ua.match(/android ([\d.]+)/i)?.[1] ?? "";
-  } else if (/iphone os|ipad.*os/i.test(ua)) {
-    os = "iOS";
-    osVersion = ua.match(/(?:iphone|ipad).*os ([\d_]+)/i)?.[1]?.replace(/_/g, ".") ?? "";
   } else if (/linux/i.test(ua)) {
     os = "Linux";
     // Try to detect specific distros
