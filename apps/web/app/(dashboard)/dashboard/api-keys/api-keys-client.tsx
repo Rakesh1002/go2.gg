@@ -28,6 +28,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { Plus, Trash2, Copy, Key, AlertTriangle } from "lucide-react";
+import { resolveSelectedOrgId } from "@/lib/selected-org";
 
 interface ApiKey {
   id: string;
@@ -65,30 +66,7 @@ export function ApiKeysClient() {
 
   useEffect(() => {
     async function initializeOrg() {
-      // First check localStorage for selected org
-      let orgId: string | null = localStorage.getItem("selectedOrgId");
-      
-      // If no org in localStorage, fetch user's organizations and use the first one
-      if (!orgId) {
-        try {
-          const response = await fetch(`${API_URL}/api/v1/organizations`, {
-            credentials: "include",
-          });
-          
-          if (response.ok) {
-            const result = await response.json();
-            const orgs = result.data || [];
-            if (orgs.length > 0) {
-              const firstOrgId = orgs[0].id as string;
-              orgId = firstOrgId;
-              localStorage.setItem("selectedOrgId", firstOrgId);
-            }
-          }
-        } catch (error) {
-          console.error("Failed to fetch organizations:", error);
-        }
-      }
-      
+      const orgId = await resolveSelectedOrgId();
       setCurrentOrgId(orgId);
       if (orgId) {
         fetchKeys(orgId);
