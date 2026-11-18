@@ -44,4 +44,14 @@ describe("resolveSelectedOrgId", () => {
     expect(await resolveSelectedOrgId()).toBeNull();
     expect(localStorage.removeItem).not.toHaveBeenCalled();
   });
+
+  it("still returns the verified org when saving it fails", async () => {
+    vi.mocked(localStorage.getItem).mockReturnValue(null);
+    vi.mocked(localStorage.setItem).mockImplementationOnce(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    mockOrgs(["org-a"]);
+
+    expect(await resolveSelectedOrgId()).toBe("org-a");
+  });
 });
