@@ -38,13 +38,14 @@ function getStripe(env: Env): Stripe {
 
 const checkoutSchema = z.object({
   priceId: z.string().min(1),
-  organizationId: z.string().uuid().optional(),
+  organizationId: z.string().min(1).optional(),
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
 });
 
+// Org ids are not all UUIDs (early orgs have 32-char hex ids); the membership check is the guard.
 const portalSchema = z.object({
-  organizationId: z.string().uuid(),
+  organizationId: z.string().min(1),
 });
 
 const confirmSchema = z.object({
