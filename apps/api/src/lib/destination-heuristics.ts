@@ -64,6 +64,8 @@ const FREE_HOSTING_SUFFIXES = [
   "kozow.com",
   "mywire.org",
   "dvrdns.org",
+  // Free QR/page builder; hosted the 2026-11 go2.gg/scanit phishing page.
+  "scan.page",
 ];
 
 /** Query keys that mark an affiliate/CPA network link. utm_* is deliberately

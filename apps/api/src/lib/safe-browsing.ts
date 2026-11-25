@@ -105,6 +105,25 @@ export async function checkSafeBrowsing(
   env: Env,
   url: string
 ): Promise<{ flagged: boolean; threats: ThreatType[] } | null> {
+  const matches = await lookupSafeBrowsing(env, [url]);
+  if (!matches) return null;
+  const threats = [...matches.values()].flat();
+  return { flagged: threats.length > 0, threats };
+}
+
+/** The v4 Lookup API's per-request cap on threatEntries. */
+export const SB_MAX_ENTRIES = 500;
+
+/**
+ * Look up to SB_MAX_ENTRIES URLs in one Safe Browsing call. Returns the
+ * blocking threats keyed by the URL exactly as sent (only listed URLs appear),
+ * or null when the key is missing or the upstream errors.
+ */
+export async function lookupSafeBrowsing(
+  env: Env,
+  urls: string[]
+): Promise<Map<string, ThreatType[]> | null> {
+  const url = urls[0] ?? "";
   const key = env.GOOGLE_SAFE_BROWSING_API_KEY;
   if (!key) {
     await logFailOpen(env, "safe_browsing", "no_key", { url });
@@ -125,7 +144,7 @@ export async function checkSafeBrowsing(
       ],
       platformTypes: ["ANY_PLATFORM"],
       threatEntryTypes: ["URL"],
-      threatEntries: [{ url }],
+      threatEntries: urls.map((u) => ({ url: u })),
     },
   };
 
@@ -151,12 +170,14 @@ export async function checkSafeBrowsing(
     }
 
     const data = (await res.json()) as SafeBrowsingResponse;
-    const matches = data.matches ?? [];
-    const threats = matches
-      .map((m) => m.threatType as ThreatType | undefined)
-      .filter((t): t is ThreatType => !!t && SB_BLOCKING_THREATS.has(t));
-
-    return { flagged: threats.length > 0, threats };
+    const listed = new Map<string, ThreatType[]>();
+    for (const m of data.matches ?? []) {
+      const threat = m.threatType as ThreatType | undefined;
+      const matched = m.threat?.url ?? (urls.length === 1 ? url : undefined);
+      if (!threat || !matched || !SB_BLOCKING_THREATS.has(threat)) continue;
+      listed.set(matched, [...(listed.get(matched) ?? []), threat]);
+    }
+    return listed;
   } catch (err) {
     const reason = err instanceof Error && err.name === "AbortError" ? "timeout" : "exception";
     await logFailOpen(env, "safe_browsing", reason, {
