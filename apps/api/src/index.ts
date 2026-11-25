@@ -1755,7 +1755,7 @@ export default {
                 const result = await rescanLinkBatch(env, db);
                 if (result.flagged > 0 || result.bailedOnBudget) {
                   console.log(
-                    `[cron] threat rescan: scanned=${result.scanned} flagged=${result.flagged} notified=${result.notified} bailedOnBudget=${result.bailedOnBudget}`
+                    `[cron] threat rescan: scanned=${result.scanned} flagged=${result.flagged} notified=${result.notified} suspended=${result.suspended} bailedOnBudget=${result.bailedOnBudget}`
                   );
                 }
               } catch (error) {

@@ -27,6 +27,12 @@ test("a free host without a redirector is only suspect", () => {
   assert.match(hit.reason, /free_hosting/);
 });
 
+test("scan.page destinations are labelled, not blocked", () => {
+  const hit = detectDestinationHeuristics("https://scan.page/uH1GlT");
+  assert.equal(hit?.severity, "suspect");
+  assert.equal(hit?.reason, "local:free_hosting:scan.page");
+});
+
 test("affiliate network shape is labelled but NEVER blocked", () => {
   // Affiliate marketing is a legitimate, paying use case for a shortener.
   // Blocking this shape would break the customers most likely to pay.

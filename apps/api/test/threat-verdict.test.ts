@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { composeThreatVerdict } from "../src/lib/threat-verdict.ts";
+import { attributeShortUrlFlags, composeThreatVerdict } from "../src/lib/threat-verdict.ts";
 
 test("Safe Browsing clean is enough on its own — URL Scanner unavailable must not pin a link as unknown", () => {
   // Production reality: Cloudflare URL Scanner returns null (http_error / never
@@ -18,7 +18,10 @@ test("URL Scanner clean alone is also enough", () => {
 });
 
 test("both scanners clean → clean", () => {
-  const verdict = composeThreatVerdict({ flagged: false, threats: [] }, { flagged: false, reasons: [] });
+  const verdict = composeThreatVerdict(
+    { flagged: false, threats: [] },
+    { flagged: false, reasons: [] }
+  );
   assert.equal(verdict.status, "clean");
   assert.deepEqual(verdict.scanners, ["safe_browsing", "url_scanner"]);
 });
@@ -36,7 +39,10 @@ test("Safe Browsing flag wins → flagged with source-prefixed verdict", () => {
 });
 
 test("URL Scanner flag wins even when Safe Browsing is clean", () => {
-  const verdict = composeThreatVerdict({ flagged: false, threats: [] }, { flagged: true, reasons: ["phishing"] });
+  const verdict = composeThreatVerdict(
+    { flagged: false, threats: [] },
+    { flagged: true, reasons: ["phishing"] }
+  );
   assert.equal(verdict.status, "flagged");
   assert.equal(verdict.verdict, "url_scanner:phishing");
 });
@@ -53,7 +59,9 @@ test("brand heuristic overrides a Safe Browsing 'clean' — the roblox.com.bz ho
 });
 
 test("brand heuristic alone is enough when no scanner answers", () => {
-  const verdict = composeThreatVerdict(null, null, { reason: "brand_heuristic:xfinity:dynamic_dns" });
+  const verdict = composeThreatVerdict(null, null, {
+    reason: "brand_heuristic:xfinity:dynamic_dns",
+  });
   assert.equal(verdict.status, "flagged");
 });
 
@@ -61,4 +69,47 @@ test("omitting the brand argument preserves the existing two-scanner behaviour",
   const verdict = composeThreatVerdict({ flagged: false, threats: [] }, null);
   assert.equal(verdict.status, "clean");
   assert.deepEqual(verdict.scanners, ["safe_browsing"]);
+});
+
+const links = [
+  { id: "a", domain: "go2.gg", slug: "scanit" },
+  { id: "b", domain: "go2.gg", slug: "docs" },
+  { id: "c", domain: "links.example.com", slug: "promo" },
+];
+
+test("a listed short URL is pinned on its own link only", () => {
+  const { hits, flaggedDomains } = attributeShortUrlFlags(
+    links,
+    new Map([["https://go2.gg/scanit", ["SOCIAL_ENGINEERING"]]])
+  );
+  assert.deepEqual(
+    hits.map((h) => [h.link.id, h.threat]),
+    [["a", "SOCIAL_ENGINEERING"]]
+  );
+  assert.deepEqual(flaggedDomains, []);
+});
+
+test("a listed domain root never disables every link on that domain", () => {
+  // Safe Browsing matches every URL on a host whose root is listed, so the
+  // slug matches below are what a whole-domain listing actually returns.
+  const { hits, flaggedDomains } = attributeShortUrlFlags(
+    links,
+    new Map([
+      ["https://go2.gg/", ["SOCIAL_ENGINEERING"]],
+      ["https://go2.gg/scanit", ["SOCIAL_ENGINEERING"]],
+      ["https://go2.gg/docs", ["SOCIAL_ENGINEERING"]],
+      ["https://links.example.com/promo", ["MALWARE"]],
+    ])
+  );
+  assert.deepEqual(flaggedDomains, ["go2.gg"]);
+  assert.deepEqual(
+    hits.map((h) => h.link.id),
+    ["c"]
+  );
+});
+
+test("nothing listed → no hits", () => {
+  const { hits, flaggedDomains } = attributeShortUrlFlags(links, new Map());
+  assert.equal(hits.length, 0);
+  assert.equal(flaggedDomains.length, 0);
 });

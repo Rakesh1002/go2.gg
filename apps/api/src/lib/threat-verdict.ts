@@ -89,3 +89,33 @@ export function composeThreatVerdict(
   // No scanner could answer at all — keep the interstitial engaged until one can.
   return { status: "unknown", verdict: "", scanners };
 }
+
+export const shortUrlOf = (link: { domain: string; slug: string }): string =>
+  `https://${link.domain}/${link.slug}`;
+
+export const domainRootOf = (domain: string): string => `https://${domain}/`;
+
+/**
+ * Pin Safe Browsing listings of our own short URLs back to their links.
+ *
+ * Google attributes a phishing chain to its entry URL, so `go2.gg/<slug>` can
+ * be listed while the destination itself reads clean (the 2026-11 scanit case).
+ * A listed domain root means the whole host is listed and every slug on it
+ * would match, so that domain is reported and never pinned on its links —
+ * otherwise one whole-domain listing would disable every customer link.
+ */
+export function attributeShortUrlFlags<T extends { domain: string; slug: string }>(
+  links: T[],
+  listed: Map<string, ThreatType[]>
+): { hits: Array<{ link: T; threat: ThreatType }>; flaggedDomains: string[] } {
+  const flaggedDomains = [...new Set(links.map((l) => l.domain))].filter((d) =>
+    listed.has(domainRootOf(d))
+  );
+  const hits: Array<{ link: T; threat: ThreatType }> = [];
+  for (const link of links) {
+    if (flaggedDomains.includes(link.domain)) continue;
+    const threat = listed.get(shortUrlOf(link))?.[0];
+    if (threat) hits.push({ link, threat });
+  }
+  return { hits, flaggedDomains };
+}
